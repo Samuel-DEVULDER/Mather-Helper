@@ -19,6 +19,7 @@ exit $?
 #include <time.h>
 #include <sys/time.h>
 #include <limits.h>
+#include <string.h>
 
 #include "CBack-1.0/SRC/CBack.h"
 
@@ -75,12 +76,16 @@ PRIVATE int popcount(uint32_t _x) {
 	return x;
 }
 
+/*****************************************************************************/
+
 PRIVATE void gettime(struct timeval *tv) {
 	if(gettimeofday(tv, NULL)<0) {
 		perror("gettimeofday");
 		exit(EXIT_FAILURE);
 	}	
 }
+
+/*****************************************************************************/
 
 #ifdef FASTER_RAND
 PRIVATE uint32_t _rnd_seed = 0xDEADBEEF;
@@ -167,11 +172,60 @@ PRIVATE int progress(long long count) {
 
 /*****************************************************************************/
 
+#define ARRAY(TYPE)                 \
+struct {							\
+	size_t  capa;					\
+	size_t	cell;					\
+	size_t	len;					\
+	TYPE   *tab;					\
+}
+	
+PRIVATE void _ARRAY_DISPOSE(void *_array) {
+	ARRAY(void) *array = _array;
+	if(array!=NULL) {
+		if(array->tab!=NULL) free(array->tab);
+		array->tab  = NULL;
+		array->capa = 0;
+		array->len  = 0;
+	}
+}
+
+PRIVATE void _ARRAY_ENSURE_CAPA(void *_array, size_t n) {
+	ARRAY(void) *array = _array;
+	if(array!=NULL && array->capa<n) {
+		array->capa = n + 128;
+		array->tab = realloc(array->tab, array->capa * array->cell);
+		assert(array->tab != NULL);
+	}
+}
+
+#define ARRAY_VAR(TYPE, NAME) ARRAY(TYPE) NAME = {0,.cell=sizeof(TYPE),0,NULL}
+
+#define ARRAY_DEL(ARRAY)	_ARRAY_DISPOSE(&(ARRAY))
+
+#define ARRAY_REM(ARRAY, INDEX) 						\
+	(ARRAY).tab[(INDEX)] = (ARRAY).tab[--(ARRAY).len]
+	
+#define ARRAY_ADD(ARRAY, VAL) do {						\
+	_ARRAY_ENSURE_CAPA(&(ARRAY), ++(ARRAY).len);		\
+	(ARRAY).tab[(ARRAY).len-1] = (VAL);					\
+} while(0)
+	
+#define ARRAY_CPY(DST, SRC) do {						\
+	assert((SRC).cell == (DST).cell);					\
+	_ARRAY_ENSURE_CAPA(&(DST), (DST).len = (SRC).len);	\
+	memcpy((DST).tab, (SRC).tab, (SRC).len*(SRC).cell);	\
+} while(0)
+
+/*****************************************************************************/
+
 typedef struct {
 	integer p;
 	integer q;
 } rat;
 
+/* define SLOW_RAT if normalisation of rationnal is slow 
+  (not the case on modern cpus). */
 #ifdef SLOW_RAT
 PRIVATE bool rat_whole(rat *p) {
 	return p->q == 1;
@@ -495,15 +549,12 @@ PRIVATE opt_rat *number(opt_rat *T, int from, int to) {
 /*****************************************************************************/
 
 typedef struct formula {
-	struct formula	*next;
 	int             used_count;
 	mask 			used;
 	mask 			mask[SIZE];
 } formula;
 
-PRIVATE formula *formulae          = NULL;
-PRIVATE int      formulae_num      = 0;
-PRIVATE int      formulae_num_diff = 0;
+PRIVATE ARRAY_VAR(formula *, formulae);
 
 PRIVATE void findall(integer num) {
 	opt_rat T; 	T.set = true;
@@ -541,11 +592,7 @@ PRIVATE void findall(integer num) {
 			f->used   |= m;
 		}
 		f->used_count  = popcount(f->used);
-		f->next = formulae;
-		formulae = f;
-		
-		if(f->used_count == SIZE) ++formulae_num_diff;
-		++formulae_num;
+		ARRAY_ADD(formulae, f);
 	}
 	
 #ifdef DEBUG
@@ -728,11 +775,12 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
 #endif
 
 PRIVATE int state_compatible_count_exact(state *state, int threshold) {
-	formula *f;
-	int n = 0;
+	int n = 0, i;
 	
-	for(f = formulae; f; f = f->next)  {
-		if(state_compatible(state, f) && ++n>threshold) break;
+	for(i=0; i<formulae.len; ++i)  {
+		if(state_compatible(state, formulae.tab[i])) {
+			if(++n>threshold) break;
+		}
 	}
 	
 	return n;
@@ -740,11 +788,13 @@ PRIVATE int state_compatible_count_exact(state *state, int threshold) {
 
 PRIVATE int state_compatible_count_approx(state *state, int threshold, 
 	int rnd_thr, formula *mand) {
-	formula *f;
-	int n = 0;
+	int n = 0, i;
 	
-	for(f = formulae; f; f = f->next) if(rand()<=rnd_thr || f==mand) {
-		if(state_compatible(state, f) && ++n>threshold) break;
+	for(i=0; i<formulae.len; ++i) {
+		formula *f = formulae.tab[i];
+		if((rand()<=rnd_thr || f==mand) && state_compatible(state, f)) {
+			if(++n>threshold) break;
+		}
 	}
 	
 	return n;
@@ -753,55 +803,56 @@ PRIVATE int state_compatible_count_approx(state *state, int threshold,
 PRIVATE bool least_worst(state *state) {
 	const long long all_colors = ipow(3,SIZE);
 	long long       cpt = 0;
-	int             i, len, least_c = formulae_num+1;
-	formula         **tab, *f, *least_f = formulae;
-	int             rnd_thr = -1;
+	int             least_c = formulae.len+1;
+	formula         *least_f = formulae.tab[0];
+	int             rnd_thr = -1, i;
 	
-	if(formulae_num==0) return false;
+	ARRAY_VAR(formula *, tab);
 	
-	if(formulae_num==1) {
+	if(formulae.len == 0) return false;
+	
+	if(formulae.len == 1) {
 		printf("Only one possible equation.\n");
 		for(i=0; i<SIZE; ++i) {
-			buffer[i] = mask_to_char(formulae->mask[i]);
+			buffer[i] = mask_to_char(formulae.tab[0]->mask[i]);
 		}
 		return true;
 	}
 	
-	tab = calloc(formulae_num, sizeof(*tab));
-	assert(tab!=NULL);
-	for(len=0, f=formulae; f; f=f->next) tab[len++] = f;
-	printf("len=%d\n", len);
-	if(len >= MAX_FORMULAE_EXACT) {
-		for(len=0, f=formulae; f; f=f->next) 
-			if(f->used_count==SIZE)
-				tab[len++] = f;
-		printf("[SIZE] len=%d\n", len);
+	ARRAY_CPY(tab, formulae);
+	if(tab.len >= MAX_FORMULAE_EXACT) {
+		for(i=0; i<tab.len;) {
+			if(tab.tab[i]->used_count==SIZE)
+				++i;
+			else ARRAY_REM(tab, i);
+		}
 	}
-	if(len >= MAX_FORMULAE_EXACT) {
-		for(len=0, f=formulae; f; f=f->next) 
-			if(f->used_count==SIZE && !(f->used & MSK0))
-				tab[len++] = f;
-		printf("[NOT0] len=%d\n", len);
+	if(tab.len >= MAX_FORMULAE_EXACT) {
+		for(i=0; i<tab.len;) {
+			if((tab.tab[i]->used & MSK0)==MSKnone)
+				++i;
+			else ARRAY_REM(tab, i);
+		}
 	}
 	
 	printf("Finding least worst equation..."); fflush(stdout);
 	
-	if(formulae_num*len >= MAX_FORMULAE_EXACT*MAX_FORMULAE_EXACT) {
+	if(formulae.len*tab.len >= MAX_FORMULAE_EXACT*MAX_FORMULAE_EXACT) {
 		long long t = MAX_FORMULAE_EXACT 
 			* (long long)MAX_FORMULAE_EXACT 
 			* (long long)RAND_MAX;
-		rnd_thr = t/formulae_num/len;
+		rnd_thr = t/formulae.len/tab.len;
 		t = (rnd_thr*(100*100ll))/RAND_MAX;
 		printf("sampling %d.%02d%%...", (int)(t/100), (int)(t%100));
 			fflush(stdout);
 	}
-	progress(-len*all_colors);
+	progress(-all_colors*(int)tab.len);
 	
 // #pragma omp parallel for
-	for(i=0; i<len; ++i) {
+	for(i=0; i<tab.len; ++i) {
 		int worst=0, colors = all_colors;
+		formula *f = tab.tab[i];
 
-		f = tab[i];
 		while(--colors>=0) {
 			struct state state2 = *state;
 			int count;
@@ -834,7 +885,7 @@ PRIVATE bool least_worst(state *state) {
 #endif
 		}
 	}
-	free(tab);
+	ARRAY_DEL(tab);
 	printf("done (%d secs)\n", progress(0));
 	for(i=0; i<SIZE; ++i) {
 		buffer[i] = mask_to_char(least_f->mask[i]);
@@ -842,7 +893,7 @@ PRIVATE bool least_worst(state *state) {
 #ifdef DEBUG
 	printf("least=");
 	for(i=0; i<SIZE; ++i) putchar(buffer[i]);
-	printf(" (%d / %d)\n", least_c, formulae_num);
+	printf(" (%d / %d)\n", least_c, formulae.len);
 #endif
 	return least_c>0;
 }
@@ -862,31 +913,29 @@ PRIVATE void _return(void) {
 
 /*****************************************************************************/
 
-PRIVATE void remove_impossible(state *s, formula **pf, int *num) {
-	formula *f; int cpt = 0;
-	while((f = *pf)) {
-		if(!state_compatible(s, f)) {
-			*pf = f->next;
-			free(f); ++cpt;
-		} else {
-			pf = &f->next;
-		}
+PRIVATE void remove_impossible(state *s) {
+#ifdef DEBUG
+	size_t before = formulae.len;
+#endif
+	int i;
+	for(i = 0; i<formulae.len;) {
+		if(state_compatible(s, formulae.tab[i])) 
+			++i;
+		else ARRAY_REM(formulae, i);
 	}
 #ifdef DEBUG
-	printf("Removed: %d\n", cpt);
+	printf("Removed: %d\n", before - formulae.len);
 #endif
-	*num -= cpt;
 }
 
-PRIVATE bool play(state *state, bool remove_invalid) {
+PRIVATE bool play_step(state *state) {
 	int colors;
 	while(true) {
 		int i, index;
 		mask symbs[SIZE];
 		struct state back = *state;
-		int formulae_num_bak = formulae_num;
 	
-		printf(formulae_num>1 ? "Try: " : "Sol: ");
+		printf(formulae.len>1 ? "Try: " : "Sol: ");
 		for(i=0; i<SIZE; ++i) {
 			symbs[i] = char_to_mask(buffer[i]);
 			putchar(buffer[i]);
@@ -894,7 +943,7 @@ PRIVATE bool play(state *state, bool remove_invalid) {
 		putchar('\n');
 
 #if !defined(NUMBLE) || !defined(DEBUG)	
-		if(formulae_num<=1) {
+		if(formulae.len<=1) {
 			fflush(stdout);
 			return false;
 		}
@@ -941,14 +990,9 @@ PRIVATE bool play(state *state, bool remove_invalid) {
 			}
 			printf("\n");
 			*state = back;
-			formulae_num = formulae_num_bak;
 		} else {
-			if(remove_invalid) {
-				remove_impossible(state, &formulae, &formulae_num);
-			}
-			if(least_worst(state)) {
-				break;
-			}
+			remove_impossible(state);
+			if(least_worst(state)) break;
 		}
 	}
 
@@ -977,47 +1021,32 @@ PRIVATE int cmp_formula(const void *_a, const void *_b) {
 }
 
 PRIVATE void sort_formulae(void) {
-	formula **tab = calloc(formulae_num, sizeof(*tab)), *f;
-	int i = 0;
+	int i;
 	
-	assert(tab!=NULL);
-	for(f = formulae; f; f=f->next) tab[i++] = f;
-	qsort(tab, i, sizeof(f), cmp_formula);
+	qsort(formulae.tab, formulae.len, sizeof(*formulae.tab), cmp_formula);
 
-	formulae = NULL;
-	while(i--) {
+	for(i=0; i<formlae.len; ++i) {
 		int j;
-		tab[i]->next = formulae;
-		formulae = tab[i];
-		for(j=0; j<SIZE; ++j) putchar(mask_to_char(formulae->mask[j]));
+		for(j=0; j<SIZE; ++j) putchar(mask_to_char(formulaetab[i]->mask[j]));
 		putchar('\n');
 	}
-	free(tab);
 }
 #endif
 
 #if DO_SHUFFLE
 PRIVATE void shuffle_formulae(void) {
-	formula **tab = calloc(formulae_num, sizeof(*tab)), *f;
-	int i = 0;
-	
-	assert(tab!=NULL);
-	for(f = formulae; f; f=f->next) tab[i++] = f;
+	int i = formulae.len;
 	
 	while(i>1) {
 		int j = rand() % i--;
-		formula *t = tab[i];
-		tab[i] = tab[j];
-		tab[j] = t;
+		formula *t = formulae.tab[i];
+		formulae.tab[i] = formulae.tab[j];
+		formulae.tab[j] = t;
 	}
-	i = formulae_num;
-
-	formulae = NULL;
-	while(i--) {
+	
+	for(i = formulae.len; i--;) {
 		int j;
-		tab[i]->next = formulae;
-		formulae = tab[i];
-		for(j=0; j<SIZE; ++j) putchar(mask_to_char(formulae->mask[j]));
+		for(j=0; j<SIZE; ++j) putchar(mask_to_char(formulae.tab[i]->mask[j]));
 		putchar('\n');
 	}
 	free(tab);
@@ -1029,7 +1058,7 @@ PRIVATE void shuffle_formulae(void) {
 int main(int argc, char **argv) {
 	integer num =  0;
 	state state;
-	int i;
+	int step;
 	
 	srand(time(0));
 	
@@ -1065,13 +1094,11 @@ int main(int argc, char **argv) {
 		printf("Finding equations for %d...", num);	fflush(stdout);
 #endif
 
-		formulae_num = formulae_num_diff = 0;
+		formulae.len = 0;
 		progress(-1); _Backtracking(findall(num)); 
-		printf("done (%d secs, %d found, %d w/uniq)\n", progress(0), 
-			formulae_num, formulae_num_diff);
+		printf("done (%d secs, %d found)\n", progress(0), formulae.len);
 
 #if DO_SHUFFLE		
-		if(formulae_num_diff>MAX_FORMULAE_EXACT)
 		shuffle_formulae();
 #endif
 #if DO_SORT
@@ -1083,16 +1110,11 @@ int main(int argc, char **argv) {
 #else
 		least_worst(&state);
 #endif
-		for(i=1; play(&state, true); ++i);
-		printf("Solved in %d step%s.\n", i, i>1?"s":"");
-
-		while(formulae != NULL) {
-			formula *p = formulae->next;
-			free(formulae);
-			formulae = p;
-		}
+		for(step=1; play_step(&state); ++step);
+		printf("Solved in %d step%s.\n", step, step>1?"s":"");
 #ifdef NUMBLE
 	} while(true);
 #endif	
+	ARRAY_DEL(formulae);
 	return 0;
 }
