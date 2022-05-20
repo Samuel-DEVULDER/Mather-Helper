@@ -847,7 +847,7 @@ PRIVATE bool least_worst(state *state) {
 	ARRAY_CPY(tab, formulae);
 
 	if(tab.len >= MAX_FORMULAE_EXACT) {
-		printf("(uniques)..."); fflush(stdout);
+		printf("(uniq#)..."); fflush(stdout);
 		for(i=0; i<tab.len;) {
 			if(tab.tab[i]->used_count==SIZE)
 				++i;
