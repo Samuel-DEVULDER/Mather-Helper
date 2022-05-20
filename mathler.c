@@ -27,20 +27,25 @@ exit $?
 #define SIZE	5
 #define MAX_OP	1
 #define URL		"https://easy.mathler.com/"
+
 #elif defined(NORMAL)
 #define SIZE	6
 #define MAX_OP	2
 #define URL		"https://mathler.com/"
+
 #elif defined(HARD)
 #define SIZE	8
 #define MAX_OP	3
 #define URL		"https://hard.mathler.com/"
+
 #elif defined(THENUMBLE)
 #define SIZE	7
 #define URL		"https://www.thenumble.app/"
+
 #elif defined(NUMBLE)
 #define SIZE	8
 #define	URL		"https://www.mathix.org/numble/"
+
 #else
 #error Please define one of EASY, NORMAL, HARD, NUMBLE, THENUMBLE.
 #define SIZE 	1
@@ -305,6 +310,29 @@ typedef enum {
 #endif
 	MSKnone=0
 } mask;
+
+PRIVATE const mask MSKall = MSKnone
+	| MSK0
+	| MSK1
+	| MSK2
+	| MSK3
+	| MSK4
+	| MSK5
+	| MSK6
+	| MSK7
+	| MSK8
+	| MSK9
+	| MSKadd
+	| MSKsub
+	| MSKmul
+	| MSKdiv
+#if ALLOW_PARENTHESIS
+	| MSKbra
+	| MSKket
+#elif defined(NUMBLE)
+	| MSKequ
+#endif
+	| MSKnone;
 
 PRIVATE mask char_to_mask(char symbol) {
 	switch(symbol) {
@@ -634,34 +662,30 @@ PRIVATE void state_print(state *state) {
 }
 #endif
 
+PRIVATE void state_relax(state *s) {
+	mask possible = MSKnone;
+	int i;
+	
+	for(i=0; i<SIZE; ++i) possible |= s->possible[i];
+	for(i=0; i<SIZE; ++i) {
+		mask m = s->possible[i];
+		if((m & -m)==m) s->possible[i] = possible;
+	}
+	s->mandatory = MSKnone;
+#ifdef DEBUG
+	printf("relaxed state:\n");	
+	state_print(s);
+#endif
+}
+
 #define GREEN	0	/* must be 0 */
 #define YELLOW	1
 #define BLACK	2
 
 PRIVATE void state_init(state *s) {
 	int i;
-	for(i=0; i<SIZE; ++i) s->possible[i] = MSKnone
-		| MSK0
-		| MSK1
-		| MSK2
-		| MSK3
-		| MSK4
-		| MSK5
-		| MSK6
-		| MSK7
-		| MSK8
-		| MSK9
-		| MSKadd
-		| MSKsub
-		| MSKmul
-		| MSKdiv
-#if ALLOW_PARENTHESIS
-		| MSKbra
-		| MSKket
-#elif defined(NUMBLE)
-		| MSKequ
-#endif
-		| MSKnone;
+	
+	for(i=0; i<SIZE; ++i) s->possible[i] = MSKall;
 	s->mandatory  = MSKnone;
 #if USE_IMPOSSIBLE
 	s->impossible = MSKnone;
@@ -819,8 +843,11 @@ PRIVATE bool least_worst(state *state) {
 		return true;
 	}
 	
+	printf("Finding least worst equation..."); fflush(stdout);
 	ARRAY_CPY(tab, formulae);
+
 	if(tab.len >= MAX_FORMULAE_EXACT) {
+		printf("(uniques)..."); fflush(stdout);
 		for(i=0; i<tab.len;) {
 			if(tab.tab[i]->used_count==SIZE)
 				++i;
@@ -828,16 +855,15 @@ PRIVATE bool least_worst(state *state) {
 		}
 	}
 	if(tab.len >= MAX_FORMULAE_EXACT) {
+		printf("(w/o 0)..."); fflush(stdout);
 		for(i=0; i<tab.len;) {
 			if((tab.tab[i]->used & MSK0)==MSKnone)
 				++i;
 			else ARRAY_REM(tab, i);
 		}
 	}
-	
-	printf("Finding least worst equation..."); fflush(stdout);
-	
-	if(formulae.len*tab.len >= MAX_FORMULAE_EXACT*MAX_FORMULAE_EXACT) {
+
+	if(formulae.len*(long long)tab.len >= MAX_FORMULAE_EXACT*(long long)MAX_FORMULAE_EXACT) {
 		long long t = MAX_FORMULAE_EXACT 
 			* (long long)MAX_FORMULAE_EXACT 
 			* (long long)RAND_MAX;
@@ -846,7 +872,7 @@ PRIVATE bool least_worst(state *state) {
 		printf("sampling %d.%02d%%...", (int)(t/100), (int)(t%100));
 			fflush(stdout);
 	}
-	progress(-all_colors*(int)tab.len);
+	progress(-all_colors*(long long)tab.len);
 	
 // #pragma omp parallel for
 	for(i=0; i<tab.len; ++i) {
@@ -878,8 +904,9 @@ PRIVATE bool least_worst(state *state) {
 			least_c = worst;
 			least_f = f;
 #ifdef DEBUG
+			int  j;
 			printf("\n%5d [", worst); fflush(stdout);
-			for(i=0; i<SIZE; ++i) putchar(mask_to_char(least_f->mask[i]));
+			for(j=0; j<SIZE; ++j) putchar(mask_to_char(least_f->mask[j]));
 			putchar(']');
 			fflush(stdout);
 #endif
@@ -928,13 +955,13 @@ PRIVATE void remove_impossible(state *s) {
 #endif
 }
 
-PRIVATE bool play_step(state *state) {
+PRIVATE bool play_round(state *state, bool relaxed) {
 	int colors;
 	while(true) {
 		int i, index;
 		mask symbs[SIZE];
 		struct state back = *state;
-	
+		
 		printf(formulae.len>1 ? "Try: " : "Sol: ");
 		for(i=0; i<SIZE; ++i) {
 			symbs[i] = char_to_mask(buffer[i]);
@@ -991,8 +1018,27 @@ PRIVATE bool play_step(state *state) {
 			printf("\n");
 			*state = back;
 		} else {
-			remove_impossible(state);
-			if(least_worst(state)) break;
+			bool ok;
+			if(relaxed) {
+				state_relax(state);
+				for(i = 0; i<formulae.len; ++i) {
+					formula *f = formulae.tab[i];
+					int j;
+					for(j=0; j<SIZE && f->mask[j]==symbs[j]; ++j);
+					if(j == SIZE) {
+						ARRAY_REM(formulae, i);
+						break;
+					}
+				}
+			} else {
+				remove_impossible(state);
+			}
+			ok = least_worst(state);
+			if(relaxed) {
+				*state = back;
+				state_update(state, symbs, colors);
+			}
+			if(ok) break;
 		}
 	}
 
@@ -1058,7 +1104,7 @@ PRIVATE void shuffle_formulae(void) {
 int main(int argc, char **argv) {
 	integer num =  0;
 	state state;
-	int step;
+	int round;
 	
 	srand(time(0));
 	
@@ -1110,8 +1156,8 @@ int main(int argc, char **argv) {
 #else
 		least_worst(&state);
 #endif
-		for(step=1; play_step(&state); ++step);
-		printf("Solved in %d step%s.\n", step, step>1?"s":"");
+		for(round=1; play_round(&state, round==1); ++round);
+		printf("Solved in %d round%s.\n", round, round>1?"s":"");
 #ifdef NUMBLE
 	} while(true);
 #endif	
