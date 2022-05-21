@@ -74,7 +74,7 @@ typedef int integer;
 /*****************************************************************************/
 
 PRIVATE int popcount(uint32_t _x) {
-    uint32_t x = _x; 
+    uint32_t x = _x;
     x -= (x >> 1) & 0x55555555;
     x = (x & 0x33333333) + ((x >> 2) & 0x33333333);
     x = (x + (x >> 4)) & 0x0f0f0f0f;
@@ -88,7 +88,7 @@ PRIVATE void gettime(struct timeval *tv) {
     if(gettimeofday(tv, NULL)<0) {
         perror("gettimeofday");
         exit(EXIT_FAILURE);
-    }   
+    }
 }
 
 /*****************************************************************************/
@@ -136,10 +136,10 @@ PRIVATE int _rnd(void) {
   static uint32_t z = 521288629;
   static uint32_t w = 88675123;
   uint32_t t;
-  t = x ^ (x << 11);   
-  x = y; y = z; z = w;   
+  t = x ^ (x << 11);
+  x = y; y = z; z = w;
   return (w ^= (w >> 19) ^ (t ^ (t >> 8))) >> 1;
-}   
+}
 #endif
 
 #define rand    _rnd
@@ -152,10 +152,10 @@ PRIVATE int progress(long long count) {
     static int cpt, cpt_sec, last;
     static struct timeval start;
     static long long total;
-    
+
     if(count==0) { // done
         struct timeval curr, temp;
-        int i;      
+        int i;
         for(i=0; i<last; ++i) putchar(' ');
         for(i=0; i<last; ++i) putchar('\b');
         fflush(stdout);
@@ -171,7 +171,7 @@ PRIVATE int progress(long long count) {
     } else if(count == LLONG_MAX) {
         static char *mill = "-\\|/";
         if(((++cpt)&63)==0) {
-            int i;      
+            int i;
             last = printf(" (%c)", mill[(cpt/64)&3]);
             for(i=0; i<last; ++i) putchar('\b');
             fflush(stdout);
@@ -216,7 +216,7 @@ struct {                            \
     size_t  len;                    \
     TYPE   *tab;                    \
 }
-    
+
 PRIVATE void _ARRAY_DISPOSE(void *_array) {
     ARRAY(void) *array = _array;
     if(array!=NULL) {
@@ -240,18 +240,23 @@ PRIVATE void _ARRAY_ENSURE_CAPA(void *_array, size_t n) {
 
 #define ARRAY_DEL(ARRAY)    _ARRAY_DISPOSE(&(ARRAY))
 
-#define ARRAY_REM(ARRAY, INDEX)                         \
+#define ARRAY_REM(ARRAY, INDEX)                             \
     (ARRAY).tab[(INDEX)] = (ARRAY).tab[--(ARRAY).len]
-    
-#define ARRAY_ADD(ARRAY, VAL) do {                      \
-    _ARRAY_ENSURE_CAPA(&(ARRAY), ++(ARRAY).len);        \
-    (ARRAY).tab[(ARRAY).len-1] = (VAL);                 \
+
+#define ARRAY_ADD(ARRAY, VAL) do {                          \
+    _ARRAY_ENSURE_CAPA(&(ARRAY), ++(ARRAY).len);            \
+    (ARRAY).tab[(ARRAY).len-1] = (VAL);                     \
 } while(0)
-    
-#define ARRAY_CPY(DST, SRC) do {                        \
-    assert((SRC).cell == (DST).cell);                   \
-    _ARRAY_ENSURE_CAPA(&(DST), (DST).len = (SRC).len);  \
-    memcpy((DST).tab, (SRC).tab, (SRC).len*(SRC).cell); \
+
+#define ARRAY_CPY(DST, SRC) do {                            \
+    _ARRAY_ENSURE_CAPA(&(DST), (DST).len = (SRC).len);      \
+    /* if only whe could do typeof(x)==typeof(y)... */      \
+    if((DST).cell == (SRC).cell) {                          \
+        memcpy((DST).tab, (SRC).tab, (SRC).len*(SRC).cell); \
+    } else {                                                \
+        int i, len = (SRC).len;                             \
+        for(i = 0; i<len; ++i) (DST).tab[i] = (SRC).tab[i]; \
+    }
 } while(0)
 
 /*****************************************************************************/
@@ -265,24 +270,24 @@ typedef struct {
 /* converts a double to a rationnal */
 PRIVATE void rat_double(rat *r, double f) {
     // https://rosettacode.org/wiki/Convert_decimal_number_to_rational#C
-    
+
     /*  a: continued fraction coefficients. */
     int64_t a, h[3] = { 0, 1, 0 }, k[3] = { 1, 0, 0 };
     int64_t x, d, n = 1, md = 32767; // md = max denominator
     bool neg = f<0;
     int i;
- 
+
     if(neg) f = -f;
     while (f != floor(f)) { n <<= 1; f *= 2; }
     d = f;
- 
+
     /* continued fraction and check denominator each step */
     for (i = 0; i < 64; i++) {
         a = n ? d / n : 0;
         if (i && !a) break;
- 
+
         x = d; d = n; n = x % n;
- 
+
         x = a;
         if (k[1] * a + k[0] >= md) {
             x = (md - k[0]) / k[1];
@@ -291,7 +296,7 @@ PRIVATE void rat_double(rat *r, double f) {
             else
                 break;
         }
- 
+
         h[2] = x * h[1] + h[0]; h[0] = h[1]; h[1] = h[2];
         k[2] = x * k[1] + k[0]; k[0] = k[1]; k[1] = k[2];
     }
@@ -325,17 +330,17 @@ PRIVATE void rat_norm(rat *r, integer p, integer q) {
 }
 
 PRIVATE void rat_add(rat *r, rat *u, rat *v) {
-/* define SLOW_RAT if normalisation of rationnal is slow 
+/* define SLOW_RAT if normalisation of rationnal is slow
   (not the case on modern cpus). */
 #ifdef SLOW_RAT
-    if(rat_whole(u) && rat_whole(v)) rat_integer(r, u->p + v->p); else 
+    if(rat_whole(u) && rat_whole(v)) rat_integer(r, u->p + v->p); else
 #endif
     rat_norm(r, u->p*v->q + v->p*u->q, u->q*v->q);
 }
 
 PRIVATE void rat_sub(rat *r, rat *u, rat *v) {
 #ifdef SLOW_RAT
-    if(rat_whole(u) && rat_whole(v)) rat_integer(r, u->p - v->p); else 
+    if(rat_whole(u) && rat_whole(v)) rat_integer(r, u->p - v->p); else
 #endif
     rat_norm(r, u->p*v->q - v->p*u->q, u->q*v->q);
 }
@@ -484,15 +489,15 @@ PRIVATE char buffer[SIZE];
 typedef opt_rat *(*goal)(opt_rat *T, int from, int to);
 
 /*
- * solves T = U op V 
+ * solves T = U op V
  *
  * if T is set, compute U to satisy equation;
- * else (U is set), compute W. 
+ * else (U is set), compute W.
  * Note: V is always set.
  */
 PRIVATE opt_rat *solve(opt_rat *T, goal goal, opt_rat *U, int from, int to, char op, opt_rat *V) {
     assert(V->set);
-    
+
     buffer[to] = op;
     switch(op) {
         case '+':
@@ -505,19 +510,19 @@ PRIVATE opt_rat *solve(opt_rat *T, goal goal, opt_rat *U, int from, int to, char
             T->set = true;
         }
         break;
-        
+
         case '=':
         case '-':
         if(T->set) {
             rat_add(&U->val, &T->val, &V->val);
             U->set = true;  goal(U, from, to);
-        } else {    
+        } else {
             U->set = false; goal(U, from, to);
             rat_sub(&T->val, &U->val, &V->val);
             T->set = true;
         }
         break;
-        
+
         case '/':
         if(V->val.p == 0) Backtrack();
         if(T->set) {
@@ -541,7 +546,7 @@ PRIVATE opt_rat *solve(opt_rat *T, goal goal, opt_rat *U, int from, int to, char
             U->set = true;  goal(U, from, to);
         }
         break;
-        
+
         default:
         assert(false);
     }
@@ -550,17 +555,17 @@ PRIVATE opt_rat *solve(opt_rat *T, goal goal, opt_rat *U, int from, int to, char
 
 PRIVATE opt_rat *expression(opt_rat *T, int from, int to) {
     char op;
-    
+
     switch(Choice(3)) {
         case 1: // expression ::= term
         return term(T, from, to);
-        
+
         case 2: // expression ::= expression + term
         op = '+'; break;
-        
+
         case 3: // expression ::= expression - term
         op = '-'; break;
-        
+
         default: assert(false); return T;
     }
     {
@@ -575,13 +580,13 @@ PRIVATE opt_rat *term(opt_rat *T, int from, int to) {
     switch(Choice(3)) {
         case 1: // term ::= factor
         return factor(T, from, to);
-        
+
         case 2: // term ::= term * factor
         op = '*'; break;
-        
+
         case 3: // term ::= term / factor
         op = '/' ; break;
-        
+
         default: assert(false); return T;
     }
     {
@@ -606,11 +611,11 @@ PRIVATE opt_rat *factor(opt_rat *T, int from, int to) {
         buffer[to-1] = ')';
         return expression(T, from+1, to-1);
     }
-    assert(false); 
+    assert(false);
     return T;
 }
 
-PRIVATE bool num(int n, int from, int to) { 
+PRIVATE bool num(int n, int from, int to) {
     int j = to;
     do {
         buffer[--j] = '0' + (n%10);
@@ -631,8 +636,8 @@ PRIVATE integer ipow(integer a, int b) {
 
 PRIVATE opt_rat *number(opt_rat *T, int from, int to) {
     if(T->set) {
-        if(T->val.q!=1 
-        || T->val.p<0 
+        if(T->val.q!=1
+        || T->val.p<0
         || !num(T->val.p, from, to)) Backtrack();
     } else {
         integer i = ipow(10, to - from - 1);
@@ -661,7 +666,7 @@ PRIVATE void findall(rat *num) {
         int split = Choice(SIZE - 2);
         opt_rat U, V;  V.set = false;
         solve(&T, expression, &U, 0, split, '=', term(&V, split+1, SIZE));
-    }   
+    }
 #else
     expression(&T, 0, SIZE);
 #endif
@@ -680,7 +685,7 @@ PRIVATE void findall(rat *num) {
     {
         formula *f = calloc(1, sizeof(formula));
         int i;
-        
+
         assert(f!=NULL);
 
         for(i=0; i<SIZE; ++i) {
@@ -691,7 +696,7 @@ PRIVATE void findall(rat *num) {
         f->used_count  = popcount(f->used);
         ARRAY_ADD(formulae, f);
     }
-    
+
 #ifdef DEBUG
 {
     static int num = 0; int i;
@@ -727,21 +732,21 @@ PRIVATE void state_print(state *state) {
         printf(" ");
         mask_print(state->possible[i]);
     }
-    printf("\n");       
+    printf("\n");
 }
 #endif
 
 PRIVATE void state_relax(state *s) {
     mask possible = MSKnone;
     int i;
-    
+
     for(i=0; i<SIZE; ++i) possible |= s->possible[i];
     for(i=0; i<SIZE; ++i) {
         mask m = s->possible[i];
         if((m & -m)==m) s->possible[i] = possible;
     }
 #ifdef DEBUG
-    printf("relaxed state:\n"); 
+    printf("relaxed state:\n");
     state_print(s);
 #endif
 }
@@ -752,7 +757,7 @@ PRIVATE void state_relax(state *s) {
 
 PRIVATE void state_init(state *s) {
     int i;
-    
+
     for(i=0; i<SIZE; ++i) s->possible[i] = MSKall;
     s->mandatory  = MSKnone;
 #if USE_IMPOSSIBLE
@@ -764,7 +769,7 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
     mask yellow_ones = MSKnone;
     mask impossible  = MSKnone;
     int i; div_t r;
-    
+
     // update yellow
     for(r.quot=colors, i=0; i<SIZE; ++i) {
         r = div(r.quot, 3);
@@ -773,7 +778,7 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
                 mask m = formula[i];
                 st->possible[i] &= ~m;
                 st->mandatory   |=  m;
-                yellow_ones     |=  m; 
+                yellow_ones     |=  m;
             }
         }
     }
@@ -783,7 +788,7 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
         mask m = formula[i];
         r = div(r.quot, 3);
         switch(r.rem) {
-            case GREEN: 
+            case GREEN:
                 if(st->possible[i] & m) {
                     st->possible[i] = m;
                     st->mandatory |=  m;
@@ -799,7 +804,7 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
             break;
         }
     }
-    
+
     // remove impossible ones
     impossible = ~impossible;
     for(i=0; i<SIZE; ++i) {
@@ -811,15 +816,15 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
             st->impossible &= impossible;
 #endif
         }
-    }   
-    
+    }
+
     return true;
 }
 
 #if 1
 PRIVATE bool state_compatible(state *state, formula *formula) {
-    //if((state->mandatory - (state->mandatory & formula->used)) 
-    if(((state->mandatory & formula->used) - state->mandatory)  
+    //if((state->mandatory - (state->mandatory & formula->used))
+    if(((state->mandatory & formula->used) - state->mandatory)
 #if USE_IMPOSSIBLE
         | (state->impossible & formula->used)
 #endif
@@ -834,8 +839,8 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
 }
 #elif 1
 PRIVATE bool state_compatible(state *state, formula *formula) {
-    int i;  
-    
+    int i;
+
     if((state->mandatory & formula->used) != state->mandatory) {
         return false;
     }
@@ -844,14 +849,14 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
             return false;
         }
     }
-    
+
     return true;
 }
 #else
 PRIVATE bool state_compatible(state *state, formula *formula) {
-    int i=SIZE; 
+    int i=SIZE;
     static mask *old;
- 
+
     if((state->impossible & formula->used) == MSKnone
     && (state->mandatory  & formula->used) == state->mandatory) {
         if(old) {while(--i>=0 && formula->mask[i]==old[i]); ++i;}
@@ -868,7 +873,7 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
 
 PRIVATE int state_compatible_count_exact(state *state, int threshold) {
     int n = 0, i;
-#if 0   
+#if 0
     for(i=0; i<formulae.len; ++i) {
         if(state_compatible(state, formulae.tab[i])) {
             if(++n>threshold) break;
@@ -885,11 +890,11 @@ PRIVATE int state_compatible_count_exact(state *state, int threshold) {
     }
     done:
 #endif
-    
+
     return n;
 }
 
-PRIVATE int state_compatible_count_approx(state *state, int threshold, 
+PRIVATE int state_compatible_count_approx(state *state, int threshold,
     int rnd_thr, formula *mand) {
     int n = 0, i;
 
@@ -921,11 +926,11 @@ PRIVATE bool least_worst(state *state) {
     int             least_c = formulae.len+1;
     formula         *least_f = formulae.tab[0];
     int             rnd_thr = -1, i;
-    
+
     ARRAY_VAR(formula *, tab);
-    
+
     if(formulae.len == 0) return false;
-    
+
     if(formulae.len == 1) {
         printf("Only one possible equation.\n");
         for(i=0; i<SIZE; ++i) {
@@ -933,7 +938,7 @@ PRIVATE bool least_worst(state *state) {
         }
         return true;
     }
-    
+
     printf("Finding least worst equation..."); fflush(stdout);
     ARRAY_CPY(tab, formulae);
 
@@ -955,8 +960,8 @@ PRIVATE bool least_worst(state *state) {
     }
 
     if(formulae.len*(long long)tab.len >= MAX_FORMULAE_EXACT*(long long)MAX_FORMULAE_EXACT) {
-        long long t = MAX_FORMULAE_EXACT 
-            * (long long)MAX_FORMULAE_EXACT 
+        long long t = MAX_FORMULAE_EXACT
+            * (long long)MAX_FORMULAE_EXACT
             * (long long)RAND_MAX;
         rnd_thr = t/formulae.len/tab.len;
         t = (rnd_thr*(100*100ll))/RAND_MAX;
@@ -964,7 +969,7 @@ PRIVATE bool least_worst(state *state) {
             fflush(stdout);
     }
     progress(-all_colors*(long long)tab.len);
-    
+
 // #pragma omp parallel for
     for(i=0; i<tab.len; ++i) {
         int worst=0, colors = all_colors;
@@ -973,16 +978,16 @@ PRIVATE bool least_worst(state *state) {
         while(--colors>=0) {
             struct state state2 = *state;
             int count;
-            
+
             state_update(&state2, f->mask, colors);
-            
+
             if(rnd_thr<0) {
                 count = state_compatible_count_exact (&state2, least_c);
             } else {
-                count = state_compatible_count_approx(&state2, least_c, 
+                count = state_compatible_count_approx(&state2, least_c,
                                                       rnd_thr, f);
             }
-            
+
             if(count > worst) {
                 worst = count;
                 if(worst >= least_c) {
@@ -1037,7 +1042,7 @@ PRIVATE void remove_impossible(state *s) {
 #endif
     int i;
     for(i = 0; i<formulae.len;) {
-        if(state_compatible(s, formulae.tab[i])) 
+        if(state_compatible(s, formulae.tab[i]))
             ++i;
         else ARRAY_REM(formulae, i);
     }
@@ -1052,7 +1057,7 @@ PRIVATE bool play_round(state *state, bool relaxed) {
         int i, index;
         mask symbs[SIZE];
         struct state back = *state;
-        
+
         printf(formulae.len>1 ? "Try: " : "Sol: ");
         for(i=0; i<SIZE; ++i) {
             symbs[i] = char_to_mask(buffer[i]);
@@ -1060,7 +1065,7 @@ PRIVATE bool play_round(state *state, bool relaxed) {
         }
         putchar('\n');
 
-#if !defined(NUMBLE) || !defined(DEBUG) 
+#if !defined(NUMBLE) || !defined(DEBUG)
         if(formulae.len<=1) {
             fflush(stdout);
             return false;
@@ -1068,20 +1073,20 @@ PRIVATE bool play_round(state *state, bool relaxed) {
 #endif
         printf("Ans: ");
         fflush(stdout);
-        
+
         for(colors = i = 0, index = 1; i<SIZE; ) {
             int c; int code = -1;
             switch((c = getchar())) {
                 case EOF: exit(0); break;
-                
+
                 case ' ': case '\r': case '\n': break;
-                
+
                 case '!': code = GREEN;  break;
                 case '+': code = YELLOW; break;
                 case '-': code = BLACK;  break;
-                
-                default: 
-                printf("ERROR, invalid char: %c\ntry:  ", (char)c); 
+
+                default:
+                printf("ERROR, invalid char: %c\ntry:  ", (char)c);
                 fflush(stdout); colors = i = 0; index = 1; break;
             }
             if(code>=0) {
@@ -1089,7 +1094,7 @@ PRIVATE bool play_round(state *state, bool relaxed) {
                 ++i; index *= 3;
             }
         }
-        
+
         if(0 == colors) return false;
 
         state_update(state, symbs, colors);
@@ -1097,7 +1102,7 @@ PRIVATE bool play_round(state *state, bool relaxed) {
         state_print(state);
 #endif
         if(state_compatible_count_exact(state, INT_MAX)==0) {
-            printf("ERROR, invalid colors: "); 
+            printf("ERROR, invalid colors: ");
             for(i=0; i<SIZE; ++i, colors /= 3) {
                 switch(colors % 3) {
                     case GREEN:  putchar('!'); break;
@@ -1144,14 +1149,14 @@ PRIVATE int cmp_formula(const void *_a, const void *_b) {
     const formula *a = *x, *b = *y;
     int d=0;
     if(d==0) d = b->used_count - a->used_count;
-    int i = SIZE; while(d==0 && --i>=0) d = 
+    int i = SIZE; while(d==0 && --i>=0) d =
 #if 1
         b->mask[i] - a->mask[i];
 #else
         a->mask[i] - b->mask[i];
 #endif
     // if((a->used & MSKbra) && !(b->used & MSKbra)) d =  1;
-    // if(!(a->used & MSKbra) && (b->used & MSKbra)) d = -1;    
+    // if(!(a->used & MSKbra) && (b->used & MSKbra)) d = -1;
     // if(d==0) d = a->used - b->used;
     // int i; for(i=0; d==0 && i<SIZE; ++i) d = (*b)->mask[i] - (*a)->mask[i];
     return d;
@@ -1159,7 +1164,7 @@ PRIVATE int cmp_formula(const void *_a, const void *_b) {
 
 PRIVATE void sort_formulae(void) {
     int i;
-    
+
     qsort(formulae.tab, formulae.len, sizeof(*formulae.tab), cmp_formula);
 
     for(i=0; i<formlae.len; ++i) {
@@ -1173,14 +1178,14 @@ PRIVATE void sort_formulae(void) {
 #if DO_SHUFFLE
 PRIVATE void shuffle_formulae(void) {
     int i = formulae.len;
-    
+
     while(i>1) {
         int j = rand() % i--;
         formula *t = formulae.tab[i];
         formulae.tab[i] = formulae.tab[j];
         formulae.tab[j] = t;
     }
-    
+
     for(i = formulae.len; i--;) {
         int j;
         for(j=0; j<SIZE; ++j) putchar(mask_to_char(formulae.tab[i]->mask[j]));
@@ -1196,9 +1201,9 @@ int main(int argc, char **argv) {
     state state;
     rat target;
     int i;
-    
+
     srand(time(0));
-    
+
     i = printf("Helper for %s by Samuel Devulder\n", URL);
     while(--i>0) {putchar('=');} putchar('\n');
     if(argc>1) {
@@ -1211,7 +1216,7 @@ int main(int argc, char **argv) {
 #if defined(_WIN32) || defined(__CYGWIN__)
         (void)system("cmd /c start " URL);
 #elif defined(__linux__) || defined(__unix__)
-        (void)system("xdg-open " URL);  
+        (void)system("xdg-open " URL);
 #elif defined(__APPLE__)
         (void)system("open " URL);
 #endif
@@ -1225,21 +1230,21 @@ int main(int argc, char **argv) {
         rat_double(&target, x);
 #endif
     }
-    
+
 #ifdef NUMBLE
     do {
         printf("Finding equations..."); fflush(stdout);
 #else
         if(rat_whole(&target))  printf("Finding equations for %d...", target.p);
-        else  printf("Finding equations for %d/%d...", target.p, target.q); 
+        else  printf("Finding equations for %d/%d...", target.p, target.q);
         fflush(stdout);
 #endif
 
         formulae.len = 0;
-        progress(-1); _Backtracking(findall(&target)); 
+        progress(-1); _Backtracking(findall(&target));
         printf("done (%d secs, %d found)\n", progress(0), formulae.len);
 
-#if DO_SHUFFLE      
+#if DO_SHUFFLE
         shuffle_formulae();
 #endif
 #if DO_SORT
@@ -1255,7 +1260,7 @@ int main(int argc, char **argv) {
         printf("Solved in %d round%s.\n", i, i>1?"s":"");
 #ifdef NUMBLE
     } while(true);
-#endif  
+#endif
     ARRAY_DEL(formulae);
     return 0;
 }
