@@ -62,7 +62,7 @@ exit $?
 #define FASTER_RAND			1
 #define USE_IMPOSSIBLE 		0
 
-#define MAX_FORMULAE_EXACT	(15000)
+#define MAX_FORMULAE_EXACT	(12000)
 
 /*****************************************************************************/
 
@@ -740,7 +740,6 @@ PRIVATE void state_relax(state *s) {
 		mask m = s->possible[i];
 		if((m & -m)==m) s->possible[i] = possible;
 	}
-	s->mandatory = MSKnone;
 #ifdef DEBUG
 	printf("relaxed state:\n");	
 	state_print(s);
