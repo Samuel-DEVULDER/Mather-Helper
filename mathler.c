@@ -93,11 +93,16 @@ PRIVATE void gettime(struct timeval *tv) {
 /*****************************************************************************/
 
 #ifdef FASTER_RAND
+
+#define XORSHIFT
+// #define XOR128
+// #define PARK_MILLER
+
+#ifdef XORSHIFT
 PRIVATE uint32_t _rnd_seed = 0xDEADBEEF;
 PRIVATE void _srnd(int seed) {
 	_rnd_seed = seed == 0 ? 0xABADCAFE : seed;
 }
-
 PRIVATE int _rnd(void) {
 	uint32_t x = _rnd_seed;
 	x ^= x<<13;
@@ -110,6 +115,32 @@ PRIVATE int _rnd(void) {
 	return x&RAND_MAX;
 #endif
 }
+
+#elif defined(PARK_MILLER)
+PRIVATE uint32_t _rnd_seed = 0xDEADBEEF;
+PRIVATE void _srnd(int seed) {
+	_rnd_seed = seed == 0 || seed == 0x7fffffff ? 0xABADCAFE : seed;
+}
+PRIVATE int _rnd(void) {
+	return _rnd_seed = (_rnd_seed * (uint64_t)48271) % 0x7fffffff;
+}
+
+#elif defined(XOR128)
+PRIVATE void _srnd(int seed) {
+	(void)seed;
+}
+PRIVATE int _rnd(void) {
+  static uint32_t x = 123456789;
+  static uint32_t y = 362436069;
+  static uint32_t z = 521288629;
+  static uint32_t w = 88675123;
+  uint32_t t;
+  t = x ^ (x << 11);   
+  x = y; y = z; z = w;   
+  return (w ^= (w >> 19) ^ (t ^ (t >> 8))) >> 1;
+}	
+#endif
+
 #define rand	_rnd
 #define srand	_srnd
 #endif
@@ -800,12 +831,23 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
 
 PRIVATE int state_compatible_count_exact(state *state, int threshold) {
 	int n = 0, i;
-	
-	for(i=0; i<formulae.len; ++i)  {
+#if 0	
+	for(i=0; i<formulae.len; ++i) {
 		if(state_compatible(state, formulae.tab[i])) {
 			if(++n>threshold) break;
 		}
 	}
+#else
+	for(i=formulae.len; i; ) switch(i) {
+		default:
+#define CODE if(state_compatible(state, formulae.tab[--i])) ++n
+		case 8: CODE; case 7: CODE; case 6: CODE; case 5: CODE;
+		case 4: CODE; case 3: CODE; case 2: CODE; case 1: CODE;
+		if(n>threshold) goto done;
+#undef CODE
+	}
+	done:
+#endif
 	
 	return n;
 }
@@ -813,14 +855,26 @@ PRIVATE int state_compatible_count_exact(state *state, int threshold) {
 PRIVATE int state_compatible_count_approx(state *state, int threshold, 
 	int rnd_thr, formula *mand) {
 	int n = 0, i;
-	
+
+#if 0
 	for(i=0; i<formulae.len; ++i) {
 		formula *f = formulae.tab[i];
 		if((rand()<=rnd_thr || f==mand) && state_compatible(state, f)) {
 			if(++n>threshold) break;
 		}
 	}
-	
+#else
+	formula *f;
+	for(i=formulae.len; i; ) switch(i) {
+		default:
+#define CODE f = formulae.tab[--i]; if((rand()<=rnd_thr || f==mand) && state_compatible(state, f)) ++n
+		case 8: CODE; case 7: CODE; case 6: CODE; case 5: CODE;
+		case 4: CODE; case 3: CODE; case 2: CODE; case 1: CODE;
+		if(n>threshold) goto done;
+#undef CODE
+	}
+	done:
+#endif
 	return n;
 }
 
