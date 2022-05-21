@@ -209,12 +209,12 @@ PRIVATE int progress(long long count) {
 
 /*****************************************************************************/
 
-#define ARRAY(TYPE)                 \
-struct {                            \
-    size_t  capa;                   \
-    size_t  cell;                   \
-    size_t  len;                    \
-    TYPE   *tab;                    \
+#define ARRAY(TYPE)                                         \
+struct {                                                    \
+    size_t        capa;                                     \
+    const size_t  cell;                                     \
+    size_t        len;                                      \
+    TYPE         *tab;                                      \
 }
 
 PRIVATE void _ARRAY_DISPOSE(void *_array) {
@@ -236,7 +236,11 @@ PRIVATE void _ARRAY_ENSURE_CAPA(void *_array, size_t n) {
     }
 }
 
-#define ARRAY_VAR(TYPE, NAME) ARRAY(TYPE) NAME = {0,.cell=sizeof(TYPE),0,NULL}
+#define ARRAY_VAR(TYPE, NAME) ARRAY(TYPE) NAME = {          \
+    .capa = 0,                                              \
+    .cell = sizeof(TYPE),                                   \
+    .len  = 0,                                              \
+    .tab  = NULL}   
 
 #define ARRAY_DEL(ARRAY)    _ARRAY_DISPOSE(&(ARRAY))
 
@@ -256,7 +260,7 @@ PRIVATE void _ARRAY_ENSURE_CAPA(void *_array, size_t n) {
     } else {                                                \
         int i, len = (SRC).len;                             \
         for(i = 0; i<len; ++i) (DST).tab[i] = (SRC).tab[i]; \
-    }
+    }                                                       \
 } while(0)
 
 /*****************************************************************************/
