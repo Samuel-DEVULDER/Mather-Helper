@@ -20,6 +20,7 @@ exit $?
 #include <sys/time.h>
 #include <limits.h>
 #include <string.h>
+#include <math.h>
 
 #include "CBack-1.0/SRC/CBack.h"
 
@@ -260,9 +261,44 @@ typedef struct {
 	integer q;
 } rat;
 
-/* define SLOW_RAT if normalisation of rationnal is slow 
-  (not the case on modern cpus). */
-#ifdef SLOW_RAT
+#ifndef NUMBLE
+/* converts a double to a rationnal */
+PRIVATE void rat_double(rat *r, double f) {
+	// https://rosettacode.org/wiki/Convert_decimal_number_to_rational#C
+	
+	/*  a: continued fraction coefficients. */
+	int64_t a, h[3] = { 0, 1, 0 }, k[3] = { 1, 0, 0 };
+	int64_t x, d, n = 1, md = 32767; // md = max denominator
+	bool neg = f<0;
+	int i;
+ 
+	if(neg) f = -f;
+ 	while (f != floor(f)) { n <<= 1; f *= 2; }
+	d = f;
+ 
+	/* continued fraction and check denominator each step */
+	for (i = 0; i < 64; i++) {
+		a = n ? d / n : 0;
+		if (i && !a) break;
+ 
+		x = d; d = n; n = x % n;
+ 
+		x = a;
+		if (k[1] * a + k[0] >= md) {
+			x = (md - k[0]) / k[1];
+			if (x * 2 >= a || k[1] >= md)
+				i = 65;
+			else
+				break;
+		}
+ 
+		h[2] = x * h[1] + h[0]; h[0] = h[1]; h[1] = h[2];
+		k[2] = x * k[1] + k[0]; k[0] = k[1]; k[1] = k[2];
+	}
+	r->q = k[1];
+	r->p = neg ? -h[1] : h[1];
+}
+
 PRIVATE bool rat_whole(rat *p) {
 	return p->q == 1;
 }
@@ -289,6 +325,8 @@ PRIVATE void rat_norm(rat *r, integer p, integer q) {
 }
 
 PRIVATE void rat_add(rat *r, rat *u, rat *v) {
+/* define SLOW_RAT if normalisation of rationnal is slow 
+  (not the case on modern cpus). */
 #ifdef SLOW_RAT
 	if(rat_whole(u) && rat_whole(v)) rat_integer(r, u->p + v->p); else 
 #endif
@@ -615,9 +653,9 @@ typedef struct formula {
 
 PRIVATE ARRAY_VAR(formula *, formulae);
 
-PRIVATE void findall(integer num) {
+PRIVATE void findall(rat *num) {
 	opt_rat T; 	T.set = true;
-	rat_integer(&T.val, num); 
+	T.val = *num;
 #ifdef NUMBLE
 	{
 		int split = Choice(SIZE - 2);
@@ -1156,34 +1194,36 @@ PRIVATE void shuffle_formulae(void) {
 /*****************************************************************************/
 
 int main(int argc, char **argv) {
-	integer num =  0;
 	state state;
-	int round;
+	rat target;
+	int i;
 	
 	srand(time(0));
 	
-	num = printf("Helper for %s by Samuel Devulder\n", URL);
-	while(--num>0) {putchar('=');} putchar('\n');
+	i = printf("Helper for %s by Samuel Devulder\n", URL);
+	while(--i>0) {putchar('=');} putchar('\n');
 	if(argc>1) {
 #ifdef NUMBLE
-		num = 0;
+		rat_integer(&target, 0);
 #else
-		num = atoi(argv[1]);
+		rat_double(&target, atof(argv[1]));
 #endif
 	} else {
 #if defined(_WIN32) || defined(__CYGWIN__)
-		num = system("cmd /c start " URL);
+		(void)system("cmd /c start " URL);
 #elif defined(__linux__) || defined(__unix__)
-		num = system("xdg-open " URL);	
+		(void)system("xdg-open " URL);	
 #elif defined(__APPLE__)
-		num = system("open " URL);
+		(void)system("open " URL);
 #endif
 #ifdef NUMBLE
-		num = 0;
+		rat_integer(&target, 0);
 #else
+		double x = 0;
 		printf("Num? ");
 		fflush(stdout);
-		while(scanf("%d", &num)!=1);
+		while(scanf("%lf", &x)!=1);
+		rat_double(&target, x);
 #endif
 	}
 	
@@ -1191,11 +1231,13 @@ int main(int argc, char **argv) {
 	do {
 		printf("Finding equations..."); fflush(stdout);
 #else
-		printf("Finding equations for %d...", num);	fflush(stdout);
+		if(rat_whole(&target))	printf("Finding equations for %d...", target.p);
+		else  printf("Finding equations for %d/%d...", target.p, target.q);	
+		fflush(stdout);
 #endif
 
 		formulae.len = 0;
-		progress(-1); _Backtracking(findall(num)); 
+		progress(-1); _Backtracking(findall(&target)); 
 		printf("done (%d secs, %d found)\n", progress(0), formulae.len);
 
 #if DO_SHUFFLE		
@@ -1210,8 +1252,8 @@ int main(int argc, char **argv) {
 #else
 		least_worst(&state);
 #endif
-		for(round=1; play_round(&state, round==1); ++round);
-		printf("Solved in %d round%s.\n", round, round>1?"s":"");
+		for(i=1; play_round(&state, i==1); ++i);
+		printf("Solved in %d round%s.\n", i, i>1?"s":"");
 #ifdef NUMBLE
 	} while(true);
 #endif	
