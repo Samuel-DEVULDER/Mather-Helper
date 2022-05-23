@@ -21,6 +21,12 @@ exit $?
 #include <limits.h>
 #include <string.h>
 #include <math.h>
+#include <unistd.h>
+#include <locale.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "CBack-1.0/SRC/CBack.h"
 
@@ -57,8 +63,8 @@ exit $?
 #define MAX_OP  SIZE
 #endif
 
-#define DO_SHUFFLE          0
-#define DO_SORT             0
+#define DO_SHUFFLE          0 //defined(_OPENMP)
+#define DO_SORT             1
 #define FASTER_RAND         1
 #define USE_IMPOSSIBLE      0
 
@@ -71,15 +77,21 @@ exit $?
 
 typedef int integer;
 
+PRIVATE const char *A_BOLD="", *A_NORM=""; /* ansi escape sequence */
+
 /*****************************************************************************/
 
 PRIVATE int popcount(uint32_t _x) {
+#ifdef __GNUC__
+    return __builtin_popcount(_x);
+#else
     uint32_t x = _x;
     x -= (x >> 1) & 0x55555555;
     x = (x & 0x33333333) + ((x >> 2) & 0x33333333);
     x = (x + (x >> 4)) & 0x0f0f0f0f;
     x = (x * 0x01010101) >> 24;
     return x;
+#endif
 }
 
 /*****************************************************************************/
@@ -95,9 +107,9 @@ PRIVATE void gettime(struct timeval *tv) {
 
 #ifdef FASTER_RAND
 
-// #define XORSHIFT
+#define XORSHIFT
 // #define XOR128
-#define PARK_MILLER
+// #define PARK_MILLER
 
 #ifdef XORSHIFT
 PRIVATE uint32_t _rnd_seed = 0xDEADBEEF;
@@ -148,7 +160,7 @@ PRIVATE int _rnd(void) {
 
 /*****************************************************************************/
 
-PRIVATE int progress(long long count) {
+PRIVATE int progress(int count) {
     static int cpt, cpt_sec, last;
     static struct timeval start;
     static long long total;
@@ -164,11 +176,11 @@ PRIVATE int progress(long long count) {
         return temp.tv_sec>INT_MAX ? INT_MAX : (int)temp.tv_sec;
     } else if(count<0) { // set
         total   = -count;
-        cpt_sec = -1;
+        cpt_sec = -30;
         last    = 0;
         cpt     = 0;
         gettime(&start);
-    } else if(count == LLONG_MAX) {
+    } else if(count == INT_MAX) {
         static char *mill = "-\\|/";
         if(((++cpt)&63)==0) {
             int i;
@@ -178,22 +190,23 @@ PRIVATE int progress(long long count) {
         }
     } else { // step
         struct timeval curr, temp; ++cpt;
-        if(cpt_sec<0 && (cpt&1023)==0) {
+        if(cpt_sec<0 && 0<=cpt_sec+cpt) {
+            cpt_sec -= 30;
             gettime(&curr);
             timersub(&curr, &start, &temp);
-            // printf("temp=%ld.%05ld %lld\n", temp.tv_sec, temp.tv_usec, cpt);
-            if(temp.tv_sec>5) {
+            if(temp.tv_sec>=15) {
                 cpt_sec = cpt/temp.tv_sec;
-                // printf("cpt_sec=%d\n", cpt_sec);
             }
         }
         if(cpt_sec>=0 && cpt>=cpt_sec) {
-            long long t; cpt = 0;
+            long long t; const int base=100; cpt = 0;
             gettime(&curr);
             timersub(&curr, &start, &temp);
-            t = (100000*count)/total;
-            t = printf(" %lld.%03lld%% (remain %lld secs)", t/1000, t%1000,
-                (temp.tv_sec*(total-count))/count);
+            t = (100*base*count)/total;
+            t = printf(" %d.%02d%% (%ds, rem. %ds)",
+                (int)t/base, (int)t%base,
+                (int)temp.tv_sec,
+                (int)(temp.tv_sec*(total-count))/count);
             while(t<last) {
                 putchar(' ');
                 ++t;
@@ -227,22 +240,23 @@ PRIVATE void _ARRAY_DISPOSE(void *_array) {
     }
 }
 
-PRIVATE void _ARRAY_ENSURE_CAPA(void *_array, size_t n) {
+PRIVATE size_t _ARRAY_ENSURE_CAPA(void *_array, size_t n) {
     ARRAY(void) *array = _array;
-    if(array!=NULL && array->capa<n) {
+    if(array!=NULL && array->capa<=n) {
         array->capa = n + 128;
         array->tab = realloc(array->tab, array->capa * array->cell);
         assert(array->tab != NULL);
     }
+    return n;
 }
 
-#define ARRAY_VAR(TYPE, NAME) ARRAY(TYPE) NAME = {          \
+#define ARRAY_DECL(TYPE, NAME) ARRAY(TYPE) NAME = {         \
     .capa = 0,                                              \
     .cell = sizeof(TYPE),                                   \
     .len  = 0,                                              \
-    .tab  = NULL}   
+    .tab  = NULL}
 
-#define ARRAY_DEL(ARRAY)    _ARRAY_DISPOSE(&(ARRAY))
+#define ARRAY_DONE(ARRAY)    _ARRAY_DISPOSE(&(ARRAY))
 
 #define ARRAY_REM(ARRAY, INDEX)                             \
     (ARRAY).tab[(INDEX)] = (ARRAY).tab[--(ARRAY).len]
@@ -319,7 +333,7 @@ PRIVATE bool rat_integer(rat *r, integer n) {
     return true;
 }
 
-// https://rosettacode.org/wiki/Greatest_common_divisor#C
+//* https://rosettacode.org/wiki/Greatest_common_divisor#C */
 PRIVATE integer gcd(integer a, integer b) {
     if(a < 0) a = -a;
     if(b < 0) b = -b;
@@ -655,12 +669,16 @@ PRIVATE opt_rat *number(opt_rat *T, int from, int to) {
 /*****************************************************************************/
 
 typedef struct formula {
-    int             used_count;
     mask            used;
     mask            mask[SIZE];
+    short int       used_count;
 } formula;
 
-PRIVATE ARRAY_VAR(formula *, formulae);
+PRIVATE ARRAY_DECL(formula *, formulae);
+
+#ifdef _OPENMP
+PRIVATE int nthreads = 1;
+#endif
 
 PRIVATE void findall(rat *num) {
     opt_rat T;  T.set = true;
@@ -708,7 +726,7 @@ PRIVATE void findall(rat *num) {
     printf("\t#%d\n", ++num);
 }
 #else
-    progress(LLONG_MAX);
+    progress(INT_MAX);
 #endif
 
     Backtrack();
@@ -875,63 +893,98 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
 }
 #endif
 
-PRIVATE int state_compatible_count_exact(state *state, int threshold) {
+#if 1
+PRIVATE int state_compatible_count(
+    state * const state, const int threshold,
+    formula ** const tab, const size_t len) {
     int n = 0, i;
-#if 0
-    for(i=0; i<formulae.len; ++i) {
-        if(state_compatible(state, formulae.tab[i])) {
+    for(i=len; --i>=0;) {
+        if(state_compatible(state, tab[i])) {
             if(++n>threshold) break;
         }
     }
-#else
-    for(i=formulae.len; i; ) switch(i) {
-        default:
-#define CODE if(state_compatible(state, formulae.tab[--i])) ++n
-        case 8: CODE; case 7: CODE; case 6: CODE; case 5: CODE;
-        case 4: CODE; case 3: CODE; case 2: CODE; case 1: CODE;
-        if(n>threshold) goto done;
-#undef CODE
-    }
-    done:
-#endif
-
     return n;
 }
-
-PRIVATE int state_compatible_count_approx(state *state, int threshold,
-    int rnd_thr, formula *mand) {
-    int n = 0, i;
-
-#if 0
-    for(i=0; i<formulae.len; ++i) {
-        formula *f = formulae.tab[i];
-        if((rand()<=rnd_thr || f==mand) && state_compatible(state, f)) {
-            if(++n>threshold) break;
-        }
-    }
 #else
-    formula *f;
-    for(i=formulae.len; i; ) switch(i) {
+PRIVATE int state_compatible_count(state *state, int threshold, formula **tab, size_t len) {
+    int n = 0, i;
+    for(i=len; i; ) switch(i) {
         default:
-#define CODE f = formulae.tab[--i]; if((rand()<=rnd_thr || f==mand) && state_compatible(state, f)) ++n
+#define CODE if(state_compatible(state, tab[--i])) ++n
         case 8: CODE; case 7: CODE; case 6: CODE; case 5: CODE;
         case 4: CODE; case 3: CODE; case 2: CODE; case 1: CODE;
         if(n>threshold) goto done;
 #undef CODE
     }
     done:
-#endif
     return n;
+}
+#endif
+
+/* find the worst number of incompatible states for the
+   current candidate */
+#ifdef _OPENMP
+PRIVATE int find_worst_openmp(state *state, formula *candidate,
+    int all_colors, formula **tab, int len, int least_c) {
+    int worst = 0;
+
+    #pragma omp parallel shared(worst)
+    {
+        int color = all_colors + omp_get_thread_num();
+        while((color-=nthreads)>=0 && worst<least_c) {
+            struct state state2 = *state;
+            state_update(&state2, candidate->mask, color);
+            int count = state_compatible_count(&state2, least_c, tab, len);
+            if(count>worst) {
+                #pragma omp critical
+                {
+                    if(count>worst) worst = count;
+                }
+            }
+        }
+    }
+
+    return worst;
+}
+
+#endif
+PRIVATE int find_worst(state *state, formula *candidate,
+    int all_colors, formula **tab, int len, int least_c) {
+    int colors;
+    int worst;
+
+#ifdef _OPENMP
+    if(nthreads>1) return find_worst_openmp(state, candidate,
+        all_colors, tab, len, least_c);
+#endif
+
+    for(worst=0, colors=all_colors; --colors>=0;) {
+        struct state state2 = *state;
+        int count;
+
+        state_update(&state2, candidate->mask, colors);
+
+        count = state_compatible_count(&state2, least_c, tab, len);
+
+        if(count > worst) {
+            worst = count;
+            if(worst > least_c) break;
+        }
+    }
+
+    return worst;
 }
 
 PRIVATE bool least_worst(state *state) {
+    const long long use_sampling_threshold =
+            MAX_FORMULAE_EXACT*(long long)MAX_FORMULAE_EXACT;
     const long long all_colors = ipow(3,SIZE);
-    long long       cpt = 0;
     int             least_c = formulae.len+1;
     formula         *least_f = formulae.tab[0];
     int             rnd_thr = -1, i;
 
-    ARRAY_VAR(formula *, tab);
+    ARRAY_DECL(formula *, candidates);
+    ARRAY_DECL(formula *, samples);
 
     if(formulae.len == 0) return false;
 
@@ -944,65 +997,57 @@ PRIVATE bool least_worst(state *state) {
     }
 
     printf("Finding least worst equation..."); fflush(stdout);
-    ARRAY_CPY(tab, formulae);
+    ARRAY_CPY(candidates, formulae);
+    ARRAY_CPY(samples,    formulae);
 
-    if(tab.len >= MAX_FORMULAE_EXACT) {
-        printf("(uniq#)..."); fflush(stdout);
-        for(i=0; i<tab.len;) {
-            if(tab.tab[i]->used_count==SIZE)
+    if(candidates.len >= MAX_FORMULAE_EXACT) {
+        printf("simpl");
+        for(i=0; i<candidates.len;) {
+            if(candidates.tab[i]->used_count==SIZE)
                 ++i;
-            else ARRAY_REM(tab, i);
+            else ARRAY_REM(candidates, i);
         }
-    }
-    if(tab.len >= MAX_FORMULAE_EXACT) {
-        printf("(w/o 0)..."); fflush(stdout);
-        for(i=0; i<tab.len;) {
-            if((tab.tab[i]->used & MSK0)==MSKnone)
-                ++i;
-            else ARRAY_REM(tab, i);
+        if(candidates.len >= MAX_FORMULAE_EXACT) {
+            for(i=0; i<candidates.len;) {
+                if((candidates.tab[i]->used & MSK0)==MSKnone)
+                    ++i;
+                else ARRAY_REM(candidates, i);
+            }
         }
+        printf("..."); fflush(stdout);
     }
 
-    if(formulae.len*(long long)tab.len >= MAX_FORMULAE_EXACT*(long long)MAX_FORMULAE_EXACT) {
-        long long t = MAX_FORMULAE_EXACT
-            * (long long)MAX_FORMULAE_EXACT
-            * (long long)RAND_MAX;
-        rnd_thr = t/formulae.len/tab.len;
+    if(formulae.len*(long long)candidates.len >= use_sampling_threshold) {
+        long long t = use_sampling_threshold * RAND_MAX;
+        rnd_thr = t/formulae.len/candidates.len;
         t = (rnd_thr*(100*100ll))/RAND_MAX;
-        printf("sampling %d.%02d%%...", (int)(t/100), (int)(t%100));
-            fflush(stdout);
+        printf("%d.%02d%% sampl...", (int)(t/100), (int)(t%100));
+        fflush(stdout);
     }
-    progress(-all_colors*(long long)tab.len);
+    progress(-candidates.len);
 
 // #pragma omp parallel for
-    for(i=0; i<tab.len; ++i) {
-        int worst=0, colors = all_colors;
-        formula *f = tab.tab[i];
+    for(i=0; i<candidates.len; ++i) {
+        formula *candidate = candidates.tab[i];
+        int worst;
 
-        while(--colors>=0) {
-            struct state state2 = *state;
-            int count;
-
-            state_update(&state2, f->mask, colors);
-
-            if(rnd_thr<0) {
-                count = state_compatible_count_exact (&state2, least_c);
-            } else {
-                count = state_compatible_count_approx(&state2, least_c,
-                                                      rnd_thr, f);
+        /* refesh our sample list from time to time */
+        if(rnd_thr>=0 && 0==(i & 7)) {
+            int j;
+            while(samples.len>0) ARRAY_REM(samples, 0);
+            for(j=0; j<formulae.len; ++j) if(j==i || rand()<=rnd_thr) {
+                ARRAY_ADD(samples, formulae.tab[j]);
             }
-
-            if(count > worst) {
-                worst = count;
-                if(worst >= least_c) {
-                    progress(cpt += colors);
-                    break;
-                }
-            } else progress(++cpt);
         }
+
+        worst = find_worst(state, candidate,
+            all_colors, samples.tab, samples.len, least_c);
+        progress(i);
+
+        /* keep the least-worse candidate */
         if(worst<least_c) {
             least_c = worst;
-            least_f = f;
+            least_f = candidate;
 #ifdef DEBUG
             int  j;
             printf("\n%5d [", worst); fflush(stdout);
@@ -1012,8 +1057,11 @@ PRIVATE bool least_worst(state *state) {
 #endif
         }
     }
-    ARRAY_DEL(tab);
-    printf("done (%d secs)\n", progress(0));
+    ARRAY_DONE(samples);
+    ARRAY_DONE(candidates);
+    printf("done");
+    if((i=progress(0))>1) printf(" (%s%d%s secs)", A_BOLD, i, A_NORM);
+    printf("\n");
     for(i=0; i<SIZE; ++i) {
         buffer[i] = mask_to_char(least_f->mask[i]);
     }
@@ -1062,12 +1110,12 @@ PRIVATE bool play_round(state *state, bool relaxed) {
         mask symbs[SIZE];
         struct state back = *state;
 
-        printf(formulae.len>1 ? "Try: " : "Sol: ");
+        printf(formulae.len>1 ? "Try: %s" : "Sol: %s", A_BOLD);
         for(i=0; i<SIZE; ++i) {
             symbs[i] = char_to_mask(buffer[i]);
             putchar(buffer[i]);
         }
-        putchar('\n');
+        printf("%s\n", A_NORM);
 
 #if !defined(NUMBLE) || !defined(DEBUG)
         if(formulae.len<=1) {
@@ -1105,7 +1153,9 @@ PRIVATE bool play_round(state *state, bool relaxed) {
 #ifdef DEBUG
         state_print(state);
 #endif
-        if(state_compatible_count_exact(state, INT_MAX)==0) {
+        if(0 == state_compatible_count(
+                state,        INT_MAX,
+                formulae.tab, formulae.len)) {
             printf("ERROR, invalid colors: ");
             for(i=0; i<SIZE; ++i, colors /= 3) {
                 switch(colors % 3) {
@@ -1167,15 +1217,15 @@ PRIVATE int cmp_formula(const void *_a, const void *_b) {
 }
 
 PRIVATE void sort_formulae(void) {
-    int i;
+    // int i;
 
     qsort(formulae.tab, formulae.len, sizeof(*formulae.tab), cmp_formula);
 
-    for(i=0; i<formlae.len; ++i) {
-        int j;
-        for(j=0; j<SIZE; ++j) putchar(mask_to_char(formulaetab[i]->mask[j]));
-        putchar('\n');
-    }
+    // for(i=0; i<formlae.len; ++i) {
+        // int j;
+        // for(j=0; j<SIZE; ++j) putchar(mask_to_char(formulaetab[i]->mask[j]));
+        // putchar('\n');
+    // }
 }
 #endif
 
@@ -1190,26 +1240,45 @@ PRIVATE void shuffle_formulae(void) {
         formulae.tab[j] = t;
     }
 
-    for(i = formulae.len; i--;) {
-        int j;
-        for(j=0; j<SIZE; ++j) putchar(mask_to_char(formulae.tab[i]->mask[j]));
-        putchar('\n');
-    }
-    free(tab);
+    // for(i = formulae.len; i--;) {
+        // int j;
+        // for(j=0; j<SIZE; ++j) putchar(mask_to_char(formulae.tab[i]->mask[j]));
+        // putchar('\n');
+    // }
 }
 #endif
 
 /*****************************************************************************/
 
+PRIVATE void title(void) {
+    char *TITLE1 = "Helper for ";
+    char *TITLE2 = " by Samuel Devulder";
+    const int len = strlen(TITLE1) + strlen(URL) + strlen(TITLE2);
+    int i;
+    putchar('\r');
+    for(i=len; --i>=0; putchar('~')){} putchar('\n');
+    printf("%s%s%s%s%s\n", TITLE1, A_BOLD, URL, A_NORM, TITLE2);
+    for(i=len; --i>=0; putchar('~')){} putchar('\n');
+}
+
+/*****************************************************************************/
+
 int main(int argc, char **argv) {
+    ARRAY_DECL(formula *, found);
     state state;
     rat target;
-    int i;
+    int i = 0;
 
     srand(time(0));
+    setlocale(LC_ALL, "");
 
-    i = printf("Helper for %s by Samuel Devulder\n", URL);
-    while(--i>0) {putchar('=');} putchar('\n');
+    if(isatty(fileno(stdout))) {
+        A_BOLD = "\033[1m";
+        A_NORM = "\033[0m";
+    }
+
+    title();
+
     if(argc>1) {
 #ifdef NUMBLE
         rat_integer(&target, 0);
@@ -1217,13 +1286,15 @@ int main(int argc, char **argv) {
         rat_double(&target, atof(argv[1]));
 #endif
     } else {
+        int ignored;
 #if defined(_WIN32) || defined(__CYGWIN__)
-        (void)system("cmd /c start " URL);
+        ignored = system("cmd /c start " URL);
 #elif defined(__linux__) || defined(__unix__)
-        (void)system("xdg-open " URL);
+        ignored = system("xdg-open " URL);
 #elif defined(__APPLE__)
-        (void)system("open " URL);
+        ignored = system("open " URL);
 #endif
+        (void)ignored;
 #ifdef NUMBLE
         rat_integer(&target, 0);
 #else
@@ -1235,18 +1306,32 @@ int main(int argc, char **argv) {
 #endif
     }
 
+#ifdef _OPENMP
+#pragma omp parallel
+    {
+        #pragma omp single
+        nthreads = omp_get_num_threads();
+    }
+    if(nthreads>1) printf("Using %s%d%s threads.\n", A_BOLD, nthreads, A_NORM);
+#endif
+
 #ifdef NUMBLE
     do {
         printf("Finding equations..."); fflush(stdout);
 #else
-        if(rat_whole(&target))  printf("Finding equations for %d...", target.p);
-        else  printf("Finding equations for %d/%d...", target.p, target.q);
+        if(rat_whole(&target))
+                printf("Finding equations for %s%d%s...",
+                    A_BOLD, target.p, A_NORM);
+        else    printf("Finding equations for %s%d/%d%s...",
+                    A_BOLD, target.p, target.q, A_NORM);
         fflush(stdout);
 #endif
 
         formulae.len = 0;
-        progress(-1); _Backtracking(findall(&target));
-        printf("done (%d secs, %d found)\n", progress(0), formulae.len);
+        progress(-1); _Backtracking(findall(&target)); i = progress(0);
+        printf("done ("); if(i>1) printf("%s%d%s secs, ", A_BOLD, i, A_NORM);
+        printf("%s%'u%s found)\n", A_BOLD, formulae.len, A_NORM);
+        ARRAY_CPY(found, formulae);
 
 #if DO_SHUFFLE
         shuffle_formulae();
@@ -1261,10 +1346,12 @@ int main(int argc, char **argv) {
         least_worst(&state);
 #endif
         for(i=1; play_round(&state, i==1); ++i);
-        printf("Solved in %d round%s.\n", i, i>1?"s":"");
+        printf("Solved in %s%d%s round%s.\n", A_BOLD, i, A_NORM, i>1?"s":"");
 #ifdef NUMBLE
     } while(true);
 #endif
-    ARRAY_DEL(formulae);
+    while(found.len) {free(found.tab[0]); ARRAY_REM(found, 0);}
+    ARRAY_DONE(found);
+    ARRAY_DONE(formulae);
     return 0;
 }

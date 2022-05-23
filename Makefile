@@ -1,5 +1,5 @@
 CC=gcc
-COPTS=-O3 -fshort-enums -Wall -DxDEBUG
+COPTS=-O3 -fshort-enums -fopenmp -Wall -DxDEBUG -g
 
 all: mathler-EASY mathler-NORMAL mathler-HARD mathler-NUMBLE mathler-THENUMBLE
 
