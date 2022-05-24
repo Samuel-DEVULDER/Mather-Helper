@@ -224,10 +224,11 @@ PRIVATE int progress(int count) {
 
 #define ARRAY(TYPE)                                         \
 struct {                                                    \
-    size_t        capa;                                     \
-    const size_t  cell;                                     \
-    size_t        len;                                      \
-    TYPE         *tab;                                      \
+    size_t         capa;                                    \
+    const size_t   cell;                                    \
+    size_t         len;                                     \
+    TYPE          *tab;                                     \
+    volatile TYPE *ptr;                                     \
 }
 
 PRIVATE void _ARRAY_DISPOSE(void *_array) {
@@ -240,14 +241,14 @@ PRIVATE void _ARRAY_DISPOSE(void *_array) {
     }
 }
 
-PRIVATE size_t _ARRAY_ENSURE_CAPA(void *_array, size_t n) {
+PRIVATE void *_ARRAY_PTR(void *_array, size_t n) {
     ARRAY(void) *array = _array;
     if(array!=NULL && array->capa<=n) {
         array->capa = n + 128;
         array->tab = realloc(array->tab, array->capa * array->cell);
         assert(array->tab != NULL);
     }
-    return n;
+    return array->tab + n*array->cell;
 }
 
 #define ARRAY_DECL(TYPE, NAME) ARRAY(TYPE) NAME = {         \
@@ -258,16 +259,23 @@ PRIVATE size_t _ARRAY_ENSURE_CAPA(void *_array, size_t n) {
 
 #define ARRAY_DONE(ARRAY)    _ARRAY_DISPOSE(&(ARRAY))
 
+#define ARRAY_AT(ARRAY,INDEX)                               \
+    *((ARRAY).ptr=_ARRAY_PTR(&(ARRAY),(INDEX)))
+    
 #define ARRAY_REM(ARRAY, INDEX)                             \
     (ARRAY).tab[(INDEX)] = (ARRAY).tab[--(ARRAY).len]
+    
+#define ARRAY_ADD(ARRAY,VAL)                                \
+    ARRAY_AT((ARRAY),(ARRAY).len++)=(VAL)
 
+#if 0
 #define ARRAY_ADD(ARRAY, VAL) do {                          \
     _ARRAY_ENSURE_CAPA(&(ARRAY), ++(ARRAY).len);            \
     (ARRAY).tab[(ARRAY).len-1] = (VAL);                     \
 } while(0)
-
+#endif
 #define ARRAY_CPY(DST, SRC) do {                            \
-    _ARRAY_ENSURE_CAPA(&(DST), (DST).len = (SRC).len);      \
+    _ARRAY_PTR(&(DST), (DST).len = (SRC).len);      \
     /* if only whe could do typeof(x)==typeof(y)... */      \
     if((DST).cell == (SRC).cell) {                          \
         memcpy((DST).tab, (SRC).tab, (SRC).len*(SRC).cell); \
@@ -671,7 +679,7 @@ PRIVATE opt_rat *number(opt_rat *T, int from, int to) {
 typedef struct formula {
     mask            used;
     mask            mask[SIZE];
-    short int       used_count;
+    unsigned char   used_count;
 } formula;
 
 PRIVATE ARRAY_DECL(formula *, formulae);
@@ -855,7 +863,7 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
     } else {
         mask *a = formula->mask, *b = state->possible;
         int i = SIZE;
-        while(i && (*a++ & *b++)) --i;
+        while(i && (*a & *b)) {++a;++b;--i;}
         return i==0;
     }
 }
