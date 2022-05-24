@@ -677,8 +677,8 @@ PRIVATE opt_rat *number(opt_rat *T, int from, int to) {
 /*****************************************************************************/
 
 typedef struct formula {
-    mask            used;
-    mask            mask[SIZE];
+    mask            unused;
+    mask            symbols[SIZE];
     unsigned char   used_count;
 } formula;
 
@@ -718,12 +718,13 @@ PRIVATE void findall(rat *num) {
 
         assert(f!=NULL);
 
+        f->unused = MSKall;
         for(i=0; i<SIZE; ++i) {
             mask m = char_to_mask(buffer[i]);
-            f->mask[i] = m;
-            f->used   |= m;
+            f->symbols[i] =  m;
+            f->unused    &= ~m;
         }
-        f->used_count  = popcount(f->used);
+        f->used_count  = popcount(MSKall ^ f->unused);
         ARRAY_ADD(formulae, f);
     }
 
@@ -744,23 +745,17 @@ PRIVATE void findall(rat *num) {
 
 typedef struct state {
     mask    mandatory;
-#if USE_IMPOSSIBLE
-    mask    impossible;
-#endif
-    mask    possible[SIZE];
+    mask    impossible[SIZE];
 } state;
 
 #ifdef DEBUG
 PRIVATE void state_print(state *state) {
     int i;
     printf("mandatory: "); mask_print(state->mandatory);
-#if USE_IMPOSSIBLE
-    printf("\nimpossible: "); mask_print(state->impossible);
-#endif
     printf("\npossible:");
     for(i=0; i<SIZE; ++i) {
         printf(" ");
-        mask_print(state->possible[i]);
+        mask_print(MSKall ^ state->impossible[i]);
     }
     printf("\n");
 }
@@ -770,10 +765,10 @@ PRIVATE void state_relax(state *s) {
     mask possible = MSKnone;
     int i;
 
-    for(i=0; i<SIZE; ++i) possible |= s->possible[i];
+    for(i=0; i<SIZE; ++i) possible |= MSKall ^ s->impossible[i];
     for(i=0; i<SIZE; ++i) {
-        mask m = s->possible[i];
-        if((m & -m)==m) s->possible[i] = possible;
+        mask m = MSKall ^ s->impossible[i];
+        if((m & -m)==m) s->impossible[i] = MSKall ^ possible;
     }
 #ifdef DEBUG
     printf("relaxed state:\n");
@@ -788,11 +783,8 @@ PRIVATE void state_relax(state *s) {
 PRIVATE void state_init(state *s) {
     int i;
 
-    for(i=0; i<SIZE; ++i) s->possible[i] = MSKall;
+    for(i=0; i<SIZE; ++i) s->impossible[i] = MSKnone;
     s->mandatory  = MSKnone;
-#if USE_IMPOSSIBLE
-    s->impossible = MSKnone;
-#endif
 }
 
 PRIVATE bool state_update(state *st, mask *formula, int colors) {
@@ -806,9 +798,9 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
         switch(r.rem) {
             case YELLOW: {
                 mask m = formula[i];
-                st->possible[i] &= ~m;
-                st->mandatory   |=  m;
-                yellow_ones     |=  m;
+                st->impossible[i] |= m;
+                st->mandatory     |= m;
+                yellow_ones       |= m;
             }
         }
     }
@@ -819,13 +811,12 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
         r = div(r.quot, 3);
         switch(r.rem) {
             case GREEN:
-                if(st->possible[i] & m) {
-                    st->possible[i] = m;
-                    st->mandatory |=  m;
+                if(st->impossible[i] & m) return false;
+                st->impossible[i] = MSKall ^ m;
+                st->mandatory    |=  m;
 #ifdef NUMBLE
-                    if(m==MSKequ) impossible |= m;
+                if(m==MSKequ) impossible |= m;
 #endif
-                } else return false; // non coherent
             break;
             case BLACK:
                 if(MSKnone == (yellow_ones & m)) {
@@ -836,70 +827,26 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
     }
 
     // remove impossible ones
-    impossible = ~impossible;
     for(i=0; i<SIZE; ++i) {
-        mask m = st->possible[i];
+        mask m = MSKall ^ st->impossible[i];
         if((m & -m) != m) {
-            st->possible[i] &= impossible;
-#if USE_IMPOSSIBLE
-        } else {
-            st->impossible &= impossible;
-#endif
+            st->impossible[i] |= impossible;
         }
     }
 
     return true;
 }
 
-#if 1
 PRIVATE bool state_compatible(state *state, formula *formula) {
-    //if((state->mandatory - (state->mandatory & formula->used))
-    if(((state->mandatory & formula->used) - state->mandatory)
-#if USE_IMPOSSIBLE
-        | (state->impossible & formula->used)
-#endif
-    ) {
-        return false;
+    if((state->mandatory & formula->unused)) { // bitwise and
+        return false; // some mandatory are not present
     } else {
-        mask *a = formula->mask, *b = state->possible;
+        mask *sym = formula->symbols, *imp = state->impossible;
         int i = SIZE;
-        while(i && (*a & *b)) {++a;++b;--i;}
+        while(i && !(*sym & *imp)) {++sym;++imp;--i;}
         return i==0;
     }
 }
-#elif 1
-PRIVATE bool state_compatible(state *state, formula *formula) {
-    int i;
-
-    if((state->mandatory & formula->used) != state->mandatory) {
-        return false;
-    }
-    for(i=0; i<SIZE; ++i) {
-        if(MSKnone == (formula->mask[i] & state->possible[i])) {
-            return false;
-        }
-    }
-
-    return true;
-}
-#else
-PRIVATE bool state_compatible(state *state, formula *formula) {
-    int i=SIZE;
-    static mask *old;
-
-    if((state->impossible & formula->used) == MSKnone
-    && (state->mandatory  & formula->used) == state->mandatory) {
-        if(old) {while(--i>=0 && formula->mask[i]==old[i]); ++i;}
-        while(--i>=0 && (formula->mask[i] & state->possible[i]));
-    }
-    if(i<0) {
-        old = formula->mask;
-        return true;
-    } else {
-        return false;
-    }
-}
-#endif
 
 #if 1
 PRIVATE int state_compatible_count(
@@ -941,7 +888,7 @@ PRIVATE int find_worst_openmp(state *state, formula *candidate,
         int color = all_colors + omp_get_thread_num();
         while((color-=nthreads)>=0 && worst<least_c) {
             struct state state2 = *state;
-            state_update(&state2, candidate->mask, color);
+            state_update(&state2, candidate->symbols, color);
             int count = state_compatible_count(&state2, least_c, tab, len);
             if(count>worst) {
                 #pragma omp critical
@@ -970,7 +917,7 @@ PRIVATE int find_worst(state *state, formula *candidate,
         struct state state2 = *state;
         int count;
 
-        state_update(&state2, candidate->mask, colors);
+        state_update(&state2, candidate->symbols, colors);
 
         count = state_compatible_count(&state2, least_c, tab, len);
 
@@ -999,7 +946,7 @@ PRIVATE bool least_worst(state *state) {
     if(formulae.len == 1) {
         printf("Only one possible equation.\n");
         for(i=0; i<SIZE; ++i) {
-            buffer[i] = mask_to_char(formulae.tab[0]->mask[i]);
+            buffer[i] = mask_to_char(formulae.tab[0]->symbols[i]);
         }
         return true;
     }
@@ -1017,7 +964,7 @@ PRIVATE bool least_worst(state *state) {
         }
         if(candidates.len >= MAX_FORMULAE_EXACT) {
             for(i=0; i<candidates.len;) {
-                if((candidates.tab[i]->used & MSK0)==MSKnone)
+                if((candidates.tab[i]->unused & MSK0))
                     ++i;
                 else ARRAY_REM(candidates, i);
             }
@@ -1059,7 +1006,7 @@ PRIVATE bool least_worst(state *state) {
 #ifdef DEBUG
             int  j;
             printf("\n%5d [", worst); fflush(stdout);
-            for(j=0; j<SIZE; ++j) putchar(mask_to_char(least_f->mask[j]));
+            for(j=0; j<SIZE; ++j) putchar(mask_to_char(least_f->symbols[j]));
             putchar(']');
             fflush(stdout);
 #endif
@@ -1071,7 +1018,7 @@ PRIVATE bool least_worst(state *state) {
     if((i=progress(0))>1) printf(" (%s%d%s secs)", A_BOLD, i, A_NORM);
     printf("\n");
     for(i=0; i<SIZE; ++i) {
-        buffer[i] = mask_to_char(least_f->mask[i]);
+        buffer[i] = mask_to_char(least_f->symbols[i]);
     }
 #ifdef DEBUG
     printf("least=");
@@ -1182,7 +1129,7 @@ PRIVATE bool play_round(state *state, bool relaxed) {
                 for(i = 0; i<formulae.len; ++i) {
                     formula *f = formulae.tab[i];
                     int j;
-                    for(j=0; j<SIZE && f->mask[j]==symbs[j]; ++j);
+                    for(j=0; j<SIZE && f->symbols[j]==symbs[j]; ++j);
                     if(j == SIZE) {
                         ARRAY_REM(formulae, i);
                         break;
@@ -1213,14 +1160,14 @@ PRIVATE int cmp_formula(const void *_a, const void *_b) {
     if(d==0) d = b->used_count - a->used_count;
     int i = SIZE; while(d==0 && --i>=0) d =
 #if 1
-        b->mask[i] - a->mask[i];
+        b->symbols[i] - a->symbols[i];
 #else
-        a->mask[i] - b->mask[i];
+        a->symbols[i] - b->symbols[i];
 #endif
     // if((a->used & MSKbra) && !(b->used & MSKbra)) d =  1;
     // if(!(a->used & MSKbra) && (b->used & MSKbra)) d = -1;
     // if(d==0) d = a->used - b->used;
-    // int i; for(i=0; d==0 && i<SIZE; ++i) d = (*b)->mask[i] - (*a)->mask[i];
+    // int i; for(i=0; d==0 && i<SIZE; ++i) d = (*b)->symbols[i] - (*a)->symbols[i];
     return d;
 }
 
@@ -1231,7 +1178,7 @@ PRIVATE void sort_formulae(void) {
 
     // for(i=0; i<formlae.len; ++i) {
         // int j;
-        // for(j=0; j<SIZE; ++j) putchar(mask_to_char(formulaetab[i]->mask[j]));
+        // for(j=0; j<SIZE; ++j) putchar(mask_to_char(formulaetab[i]->symbols[j]));
         // putchar('\n');
     // }
 }
@@ -1250,7 +1197,7 @@ PRIVATE void shuffle_formulae(void) {
 
     // for(i = formulae.len; i--;) {
         // int j;
-        // for(j=0; j<SIZE; ++j) putchar(mask_to_char(formulae.tab[i]->mask[j]));
+        // for(j=0; j<SIZE; ++j) putchar(mask_to_char(formulae.tab[i]->symbols[j]));
         // putchar('\n');
     // }
 }
