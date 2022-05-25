@@ -841,10 +841,13 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
     if((state->mandatory & formula->unused)) { // bitwise and
         return false; // some mandatory are not present
     } else {
-        mask *sym = formula->symbols, *imp = state->impossible;
+        mask *sym = formula->symbols, *imp = state->impossible, acc = MSKnone;
         int i = SIZE;
-        while(i && !(*sym & *imp)) {++sym;++imp;--i;}
-        return i==0;
+		// do acc |= (*sym++ & *imp++); while(--i);
+		do acc = (*sym++ & *imp++); while(!acc && --i);
+        // do acc |= (*sym++ & *imp++); while(!acc && --i);
+		// for(i=0;i<SIZE;++i) acc |= sym[i] & imp[i];
+        return acc==MSKnone;
     }
 }
 
