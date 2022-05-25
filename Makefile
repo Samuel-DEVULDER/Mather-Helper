@@ -21,9 +21,9 @@ ALL=EASY NORMAL HARD NUMBLE
 all: $(patsubst %, mathler-%$(EXE), $(ALL))
 
 peekasm: 
-	$(CC) -o tmp.o mathler.c -DHARD $(OPTIM) $(COPTS) $(DEBUG)\
+	@$(CC) -o tmp.o mathler.c -DHARD $(OPTIM) $(COPTS) $(DEBUG)\
 		-c -fno-inline -g
-	objdump -d -M intel -S tmp.o | less
+	objdump -d -S tmp.o | less
 
 mathler-%$(EXE): mathler.c Makefile
 	$(CC) -o $@ -D$* $(OPTIM) $(COPTS) $< CBack-1.0/SRC/CBack.c $(OPENMP)
