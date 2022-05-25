@@ -21,8 +21,8 @@ ALL=EASY NORMAL HARD NUMBLE
 all: $(patsubst %, mathler-%$(EXE), $(ALL))
 
 peekasm: 
-	@$(CC) -o tmp.o mathler.c -DHARD $(OPTIM) $(COPTS) $(DEBUG)\
-		-c -fno-inline -g
+	@$(CC) -o tmp.o mathler.c \
+	-DHARD $(OPTIM) $(COPTS) $(DEBUG) -c -fno-inline -g
 	objdump -d -S tmp.o | less
 
 mathler-%$(EXE): mathler.c Makefile
