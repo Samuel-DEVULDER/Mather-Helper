@@ -676,9 +676,24 @@ PRIVATE opt_rat *number(opt_rat *T, int from, int to) {
 
 /*****************************************************************************/
 
+#ifdef SIMD
+/* poor man SIMD: use 32/64 bits to handle 2 or for 4 masks in one go */
+#define SIMD_TYPE uint_fast32_t 
+#endif
+
+typedef union {
+#ifdef  SIMD_TYPE
+#define SIMD_SIZE sizeof(SIMD_TYPE)
+	SIMD_TYPE	simd[(SIZE*sizeof(mask)+SIMD_SIZE-1)/sizeof(SIMD_SIZE)];
+#endif
+	mask 		masks[SIZE];
+} masks;
+
+
 typedef struct formula {
+    masks           _symbols;
+#define symbols _symbols.masks
     mask            unused;
-    mask            symbols[SIZE];
     unsigned char   used_count;
 } formula;
 
@@ -744,8 +759,9 @@ PRIVATE void findall(rat *num) {
 /*****************************************************************************/
 
 typedef struct state {
+    masks   _impossible;
+#define impossible _impossible.masks
     mask    mandatory;
-    mask    impossible[SIZE];
 } state;
 
 #ifdef DEBUG
@@ -789,7 +805,7 @@ PRIVATE void state_init(state *s) {
 
 PRIVATE bool state_update(state *st, mask *formula, int colors) {
     mask yellow_ones = MSKnone;
-    mask impossible  = MSKnone;
+    mask forbidden   = MSKnone;
     int i; div_t r;
 
     // update yellow
@@ -815,12 +831,12 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
                 st->impossible[i] = MSKall ^ m;
                 st->mandatory    |=  m;
 #ifdef NUMBLE
-                if(m==MSKequ) impossible |= m;
+                if(m==MSKequ) forbidden |= m;
 #endif
             break;
             case BLACK:
                 if(MSKnone == (yellow_ones & m)) {
-                    impossible |= m;
+                    forbidden |= m;
                 }
             break;
         }
@@ -830,7 +846,7 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
     for(i=0; i<SIZE; ++i) {
         mask m = MSKall ^ st->impossible[i];
         if((m & -m) != m) {
-            st->impossible[i] |= impossible;
+            st->impossible[i] |= forbidden;
         }
     }
 
@@ -841,6 +857,15 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
     if((state->mandatory & formula->unused)) { // bitwise and
         return false; // some mandatory are not present
     } else {
+#ifdef SIMD_TYPE
+		int i = sizeof(formula->_symbols.simd)/sizeof(formula->_symbols.simd[0]);
+		SIMD_TYPE *imp = state->_impossible.simd;
+		SIMD_TYPE *sym = formula->_symbols.simd;
+		do {
+			if((*imp++ & *sym++)) return false;
+		} while(--i);
+		return true;
+#else		
         mask *sym = formula->symbols, *imp = state->impossible, acc = MSKnone;
         int i = SIZE;
 		// do acc |= (*sym++ & *imp++); while(--i);
@@ -848,6 +873,7 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
         // do acc |= (*sym++ & *imp++); while(!acc && --i);
 		// for(i=0;i<SIZE;++i) acc |= sym[i] & imp[i];
         return acc==MSKnone;
+#endif
     }
 }
 
@@ -858,7 +884,9 @@ PRIVATE int state_compatible_count(
     int n = 0, i;
     for(i=len; --i>=0;) {
         if(state_compatible(state, tab[i])) {
-            if(++n>threshold) break;
+            if(++n>threshold) {
+				break;
+			}
         }
     }
     return n;
