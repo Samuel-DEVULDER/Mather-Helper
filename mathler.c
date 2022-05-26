@@ -677,14 +677,18 @@ PRIVATE opt_rat *number(opt_rat *T, int from, int to) {
 /*****************************************************************************/
 
 #ifdef SIMD
+#ifdef __SSE4_1__
+#include <immintrin.h>
+#define SIMD_TYPE __m128i
+#else
 /* poor man SIMD: use 32/64 bits to handle 2 or for 4 masks in one go */
 #define SIMD_TYPE uint_fast32_t 
+#endif
 #endif
 
 typedef union {
 #ifdef  SIMD_TYPE
-#define SIMD_SIZE sizeof(SIMD_TYPE)
-	SIMD_TYPE	simd[(SIZE*sizeof(mask)+SIMD_SIZE-1)/sizeof(SIMD_SIZE)];
+	SIMD_TYPE	vect[(SIZE*sizeof(mask)+sizeof(SIMD_TYPE)-1)/sizeof(SIMD_TYPE)];
 #endif
 	mask 		masks[SIZE];
 } masks;
@@ -728,10 +732,16 @@ PRIVATE void findall(rat *num) {
     }
 
     {
-        formula *f = calloc(1, sizeof(formula));
+        formula *f = 
+#ifdef __SSE4_1__
+			aligned_alloc(sizeof(SIMD_TYPE), sizeof(formula));
+#else
+			malloc(sizeof(formula));
+#endif
         int i;
 
         assert(f!=NULL);
+		memset(f, 0, sizeof(formula));
 
         f->unused = MSKall;
         for(i=0; i<SIZE; ++i) {
@@ -858,11 +868,15 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
         return false; // some mandatory are not present
     } else {
 #ifdef SIMD_TYPE
-		int i = sizeof(formula->_symbols.simd)/sizeof(formula->_symbols.simd[0]);
-		SIMD_TYPE *imp = state->_impossible.simd;
-		SIMD_TYPE *sym = formula->_symbols.simd;
+		int i = sizeof(formula->_symbols.vect)/sizeof(formula->_symbols.vect[0]);
+		SIMD_TYPE *imp = state->_impossible.vect;
+		SIMD_TYPE *sym = formula->_symbols.vect;
 		do {
+#ifdef __SSE4_1__
+			if(!(_mm_test_all_zeros(*sym++, *imp++))) return false;
+#else
 			if((*imp++ & *sym++)) return false;
+#endif
 		} while(--i);
 		return true;
 #else		

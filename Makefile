@@ -4,9 +4,9 @@
 CC=gcc
 
 OPENMP=-fopenmp
-OPTIM=-O3 -fshort-enums
+OPTIM=-O3 -fshort-enums -march=native
 DEBUG=	#-DDEBUG
-COPTS=-Wall -DSIMD
+COPTS=-Wall -DSIMD -Dmsse4
 
 ifeq ($(OS),Windows_NT)
 EXE=.exe
@@ -14,14 +14,17 @@ else
 EXE=
 endif
 
-ALL=EASY NORMAL HARD NUMBLE
+ALL=$(patsubst %, mathler-%$(EXE), EASY NORMAL HARD NUMBLE)
 
 ###############################################################################
 
-all: $(patsubst %, mathler-%$(EXE), $(ALL))
+all: $(ALL)
+
+clean:
+	rm -f $(ALL)
 
 peekasm: 
-	@$(CC) -o tmp.o mathler.c \
+	$(CC) -o tmp.o mathler.c \
 	-DHARD $(OPTIM) $(COPTS) $(DEBUG) -c -fno-inline -g
 	objdump -d -S tmp.o | less
 
