@@ -1330,7 +1330,7 @@ int main(int argc, char **argv) {
         formulae.len = 0;
         progress(-1); _Backtracking(findall(&target)); i = progress(0);
         printf("done ("); if(i>1) printf("%s%d%s secs, ", A_BOLD, i, A_NORM);
-        printf("%s%'u%s found)\n", A_BOLD, formulae.len, A_NORM);
+        printf("%s%'u%s found)\n", A_BOLD, (unsigned)formulae.len, A_NORM);
         ARRAY_CPY(found, formulae);
 
 #if DO_SHUFFLE
