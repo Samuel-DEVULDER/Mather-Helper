@@ -41,11 +41,11 @@ CORES:=1
 endif
 
 tst: mathler-HARD$(EXE)
-	for i in {1..$(CORES)};\
+	bash -c 'for i in {1..$(CORES)};\
 	do\
 		OMP_THREAD_LIMIT=$$i\
 		./$< </dev/null 7;\
-	done
+	done'
 
 profile-%:
 	$(MAKE) "CC=$(CC) -g -pg" OPENMP= $*
