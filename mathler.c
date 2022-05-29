@@ -63,10 +63,13 @@ exit $?
 #define MAX_OP  SIZE
 #endif
 
+#ifndef CONFIG
+#define CONFIG 22
+#endif
+
 #define DO_SHUFFLE          0 //defined(_OPENMP)
 #define DO_SORT             1
 #define FASTER_RAND         1
-#define USE_IMPOSSIBLE      0
 
 #define MAX_FORMULAE_EXACT  (15000)
 
@@ -388,16 +391,16 @@ PRIVATE void rat_div(rat *r, rat *u, rat *v) {
 /*****************************************************************************/
 
 typedef enum {
-    MSK0=1,
-    MSK1=2,
+    MSK1=1,
+    MSK9=2,
     MSK2=4,
-    MSK3=8,
-    MSK4=16,
-    MSK5=32,
-    MSK6=64,
-    MSK7=128,
-    MSK8=256,
-    MSK9=512,
+    MSK8=8,
+    MSK3=16,
+    MSK7=32,
+    MSK4=64,
+    MSK6=128,
+    MSK5=256,
+    MSK0=512,
     MSKadd=1024,
     MSKsub=2048,
     MSKmul=4096,
@@ -733,11 +736,11 @@ PRIVATE void findall(rat *num) {
 
     {
         formula *f = 
-#ifdef __SSE4_1__
-			aligned_alloc(sizeof(SIMD_TYPE), sizeof(formula));
-#else
-			malloc(sizeof(formula));
-#endif
+// #ifdef __SSE4_1__
+			aligned_alloc(4*sizeof(SIMD_TYPE), sizeof(formula));
+// #else
+			// malloc(sizeof(formula));
+// #endif
         int i;
 
         assert(f!=NULL);
@@ -872,10 +875,18 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
 		SIMD_TYPE *imp = state->_impossible.vect;
 		SIMD_TYPE *sym = formula->_symbols.vect;
 		do {
+#if (CONFIG&16)
 #ifdef __SSE4_1__
 			if(!(_mm_test_all_zeros(*sym++, *imp++))) return false;
 #else
 			if((*imp++ & *sym++)) return false;
+#endif
+#else
+#ifdef __SSE4_1__
+			if(!(_mm_test_all_zeros(sym[i-1], imp[i-1]))) return false;
+#else
+			if((imp[i-1] & sym[i-1])) return false;
+#endif
 #endif
 		} while(--i);
 		return true;
@@ -1196,21 +1207,42 @@ PRIVATE bool play_round(state *state, bool relaxed) {
 }
 
 /*****************************************************************************/
+//23 67 15 1819 22=10110
+// 22=101
+//  6=105
+// 10=106
+// 19=105
+// 26=105
+// 30=106
+// 14=107
+//  3=108
+//  7=108
+// 23=108
+// 18=110
 
 #if DO_SORT
 PRIVATE int cmp_formula(const void *_a, const void *_b) {
     formula * const *x = _a, * const *y = _b;
     const formula *a = *x, *b = *y;
     int d=0;
+#if (CONFIG&8)
+	d = (a->unused & MSKbra) - (b->unused & MSKbra);
+#endif
+#if (CONFIG&1)
     if(d==0) d = b->used_count - a->used_count;
-    int i = SIZE; while(d==0 && --i>=0) d =
-#if 1
+#else
+	if(d==0) d = a->used_count - b->used_count;
+#endif
+#if (CONFIG&2)
+	int i = SIZE; while(d==0 && --i>=0) d =
+#else
+	int i; for(i=0;d==0 && i<SIZE;++i) d =
+#endif
+#if (CONFIG&4)
         b->symbols[i] - a->symbols[i];
 #else
         a->symbols[i] - b->symbols[i];
 #endif
-    // if((a->used & MSKbra) && !(b->used & MSKbra)) d =  1;
-    // if(!(a->used & MSKbra) && (b->used & MSKbra)) d = -1;
     // if(d==0) d = a->used - b->used;
     // int i; for(i=0; d==0 && i<SIZE; ++i) d = (*b)->symbols[i] - (*a)->symbols[i];
     return d;
