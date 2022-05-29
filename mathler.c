@@ -676,9 +676,28 @@ PRIVATE opt_rat *number(opt_rat *T, int from, int to) {
 
 /*****************************************************************************/
 
+#ifdef SIMD
+#ifdef __SSE4_1__
+#include <immintrin.h>
+#define SIMD_TYPE __m128i
+#else
+/* poor man SIMD: use 32/64 bits to handle 2 or for 4 masks in one go */
+#define SIMD_TYPE uint_fast32_t 
+#endif
+#endif
+
+typedef union {
+#ifdef  SIMD_TYPE
+	SIMD_TYPE	vect[(SIZE*sizeof(mask)+sizeof(SIMD_TYPE)-1)/sizeof(SIMD_TYPE)];
+#endif
+	mask 		masks[SIZE];
+} masks;
+
+
 typedef struct formula {
+    masks           _symbols;
+#define symbols _symbols.masks
     mask            unused;
-    mask            symbols[SIZE];
     unsigned char   used_count;
 } formula;
 
@@ -713,10 +732,16 @@ PRIVATE void findall(rat *num) {
     }
 
     {
-        formula *f = calloc(1, sizeof(formula));
+        formula *f = 
+#ifdef __SSE4_1__
+			aligned_alloc(sizeof(SIMD_TYPE), sizeof(formula));
+#else
+			malloc(sizeof(formula));
+#endif
         int i;
 
         assert(f!=NULL);
+		memset(f, 0, sizeof(formula));
 
         f->unused = MSKall;
         for(i=0; i<SIZE; ++i) {
@@ -744,8 +769,9 @@ PRIVATE void findall(rat *num) {
 /*****************************************************************************/
 
 typedef struct state {
+    masks   _impossible;
+#define impossible _impossible.masks
     mask    mandatory;
-    mask    impossible[SIZE];
 } state;
 
 #ifdef DEBUG
@@ -789,7 +815,7 @@ PRIVATE void state_init(state *s) {
 
 PRIVATE bool state_update(state *st, mask *formula, int colors) {
     mask yellow_ones = MSKnone;
-    mask impossible  = MSKnone;
+    mask forbidden   = MSKnone;
     int i; div_t r;
 
     // update yellow
@@ -815,12 +841,12 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
                 st->impossible[i] = MSKall ^ m;
                 st->mandatory    |=  m;
 #ifdef NUMBLE
-                if(m==MSKequ) impossible |= m;
+                if(m==MSKequ) forbidden |= m;
 #endif
             break;
             case BLACK:
                 if(MSKnone == (yellow_ones & m)) {
-                    impossible |= m;
+                    forbidden |= m;
                 }
             break;
         }
@@ -830,7 +856,7 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
     for(i=0; i<SIZE; ++i) {
         mask m = MSKall ^ st->impossible[i];
         if((m & -m) != m) {
-            st->impossible[i] |= impossible;
+            st->impossible[i] |= forbidden;
         }
     }
 
@@ -841,6 +867,19 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
     if((state->mandatory & formula->unused)) { // bitwise and
         return false; // some mandatory are not present
     } else {
+#ifdef SIMD_TYPE
+		int i = sizeof(formula->_symbols.vect)/sizeof(formula->_symbols.vect[0]);
+		SIMD_TYPE *imp = state->_impossible.vect;
+		SIMD_TYPE *sym = formula->_symbols.vect;
+		do {
+#ifdef __SSE4_1__
+			if(!(_mm_test_all_zeros(*sym++, *imp++))) return false;
+#else
+			if((*imp++ & *sym++)) return false;
+#endif
+		} while(--i);
+		return true;
+#else		
         mask *sym = formula->symbols, *imp = state->impossible, acc = MSKnone;
         int i = SIZE;
 		// do acc |= (*sym++ & *imp++); while(--i);
@@ -848,6 +887,7 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
         // do acc |= (*sym++ & *imp++); while(!acc && --i);
 		// for(i=0;i<SIZE;++i) acc |= sym[i] & imp[i];
         return acc==MSKnone;
+#endif
     }
 }
 
@@ -858,7 +898,9 @@ PRIVATE int state_compatible_count(
     int n = 0, i;
     for(i=len; --i>=0;) {
         if(state_compatible(state, tab[i])) {
-            if(++n>threshold) break;
+            if(++n>threshold) {
+				break;
+			}
         }
     }
     return n;
@@ -1288,7 +1330,7 @@ int main(int argc, char **argv) {
         formulae.len = 0;
         progress(-1); _Backtracking(findall(&target)); i = progress(0);
         printf("done ("); if(i>1) printf("%s%d%s secs, ", A_BOLD, i, A_NORM);
-        printf("%s%'u%s found)\n", A_BOLD, formulae.len, A_NORM);
+        printf("%s%'u%s found)\n", A_BOLD, (unsigned)formulae.len, A_NORM);
         ARRAY_CPY(found, formulae);
 
 #if DO_SHUFFLE
