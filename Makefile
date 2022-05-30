@@ -50,16 +50,16 @@ tst: mathler-HARD$(EXE)
 		./$< </dev/null 7;\
 	done'
 
-config: configs-18 configs-7
+configs: configs-18 configs-7 configs-0
 
 configs-%: 
 	bash -c 'for c in {0..31};\
 	do\
 		rm 2>/dev/null ./mathler-HARD$(EXE); \
-		make mathler-HARD$(EXE) \
+		make >/dev/null mathler-HARD$(EXE) \
 			"CC=$(CC) -DCONFIG=$$c"; \
-		echo CONFIG==$c; \
-		./mathler-HARD$(EXE) </dev/null $*; \
+		echo -n CONFIG=$$c; \
+		time ./mathler-HARD$(EXE) </dev/null >/dev/null $*; \
 		echo; \
 	done'
 
