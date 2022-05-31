@@ -63,9 +63,9 @@ exit $?
 #define MAX_OP  SIZE
 #endif
 
-#ifndef CONFIG
-#define CONFIG 22
-#endif
+// #ifndef CONFIG
+// #define CONFIG 2
+// #endif
 
 #define DO_SHUFFLE          0 //defined(_OPENMP)
 #define DO_SORT             1
@@ -399,8 +399,8 @@ typedef enum {
     MSK7=32,
     MSK4=64,
     MSK6=128,
-    MSK5=256,
-    MSK0=512,
+    MSK0=256,
+    MSK5=512,
     MSKadd=1024,
     MSKsub=2048,
     MSKmul=4096,
@@ -691,9 +691,9 @@ PRIVATE opt_rat *number(opt_rat *T, int from, int to) {
 
 typedef union {
 #ifdef  SIMD_TYPE
-	SIMD_TYPE	vect[(SIZE*sizeof(mask)+sizeof(SIMD_TYPE)-1)/sizeof(SIMD_TYPE)];
+    SIMD_TYPE   vect[(SIZE*sizeof(mask)+sizeof(SIMD_TYPE)-1)/sizeof(SIMD_TYPE)];
 #endif
-	mask 		masks[SIZE];
+    mask        masks[SIZE];
 } masks;
 
 
@@ -736,15 +736,15 @@ PRIVATE void findall(rat *num) {
 
     {
         formula *f = 
-// #ifdef __SSE4_1__
-			aligned_alloc(4*sizeof(SIMD_TYPE), sizeof(formula));
-// #else
-			// malloc(sizeof(formula));
-// #endif
+#ifdef __SSE4_1__
+            aligned_alloc(2*sizeof(SIMD_TYPE), sizeof(formula));
+#else
+            malloc(sizeof(formula));
+#endif
         int i;
 
         assert(f!=NULL);
-		memset(f, 0, sizeof(formula));
+        memset(f, 0, sizeof(formula));
 
         f->unused = MSKall;
         for(i=0; i<SIZE; ++i) {
@@ -871,32 +871,32 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
         return false; // some mandatory are not present
     } else {
 #ifdef SIMD_TYPE
-		int i = sizeof(formula->_symbols.vect)/sizeof(formula->_symbols.vect[0]);
-		SIMD_TYPE *imp = state->_impossible.vect;
-		SIMD_TYPE *sym = formula->_symbols.vect;
-		do {
+        int i = sizeof(formula->_symbols.vect)/sizeof(formula->_symbols.vect[0]);
+        SIMD_TYPE *imp = state->_impossible.vect;
+        SIMD_TYPE *sym = formula->_symbols.vect;
+        do {
 #if (CONFIG&16)
 #ifdef __SSE4_1__
-			if(!(_mm_test_all_zeros(*sym++, *imp++))) return false;
+            if(!(_mm_test_all_zeros(*sym++, *imp++))) return false;
 #else
-			if((*imp++ & *sym++)) return false;
+            if((*imp++ & *sym++)) return false;
 #endif
 #else
 #ifdef __SSE4_1__
-			if(!(_mm_test_all_zeros(sym[i-1], imp[i-1]))) return false;
+            if(!(_mm_test_all_zeros(sym[i-1], imp[i-1]))) return false;
 #else
-			if((imp[i-1] & sym[i-1])) return false;
+            if((imp[i-1] & sym[i-1])) return false;
 #endif
 #endif
-		} while(--i);
-		return true;
-#else		
+        } while(--i);
+        return true;
+#else       
         mask *sym = formula->symbols, *imp = state->impossible, acc = MSKnone;
         int i = SIZE;
-		// do acc |= (*sym++ & *imp++); while(--i);
-		do acc = (*sym++ & *imp++); while(!acc && --i);
+        // do acc |= (*sym++ & *imp++); while(--i);
+        do acc = (*sym++ & *imp++); while(!acc && --i);
         // do acc |= (*sym++ & *imp++); while(!acc && --i);
-		// for(i=0;i<SIZE;++i) acc |= sym[i] & imp[i];
+        // for(i=0;i<SIZE;++i) acc |= sym[i] & imp[i];
         return acc==MSKnone;
 #endif
     }
@@ -910,8 +910,8 @@ PRIVATE int state_compatible_count(
     for(i=len; --i>=0;) {
         if(state_compatible(state, tab[i])) {
             if(++n>threshold) {
-				break;
-			}
+                break;
+            }
         }
     }
     return n;
@@ -939,9 +939,10 @@ PRIVATE int find_worst_openmp(state *state, formula *candidate,
     int all_colors, formula **tab, int len, int least_c) {
     int worst = 0;
 
-    #pragma omp parallel shared(worst)
+    #pragma omp parallel shared(worst) firstprivate(least_c, tab, len)
     {
         int color = all_colors + omp_get_thread_num();
+#if 1
         while((color-=nthreads)>=0 && worst<least_c) {
             struct state state2 = *state;
             state_update(&state2, candidate->symbols, color);
@@ -953,6 +954,23 @@ PRIVATE int find_worst_openmp(state *state, formula *candidate,
                 }
             }
         }
+#else
+        do {
+            int _w = worst, j;
+            for(j=0; j<8 && (color-=nthreads)>=0; ++j) {
+                struct state state2 = *state;
+                state_update(&state2, candidate->symbols, color);
+                int count = state_compatible_count(&state2, least_c, tab, len);
+                if(count > _w) _w = count;
+            }
+            if(_w > worst) {
+                #pragma omp critical
+                {
+                    if(_w > worst) worst = _w;
+                }
+            }
+        } while(color>0 && worst<least_c);
+#endif
     }
 
     return worst;
@@ -1226,17 +1244,17 @@ PRIVATE int cmp_formula(const void *_a, const void *_b) {
     const formula *a = *x, *b = *y;
     int d=0;
 #if (CONFIG&8)
-	d = (a->unused & MSKbra) - (b->unused & MSKbra);
+    d = (b->unused & MSKbra) - (a->unused & MSKbra);
 #endif
 #if (CONFIG&1)
     if(d==0) d = b->used_count - a->used_count;
 #else
-	if(d==0) d = a->used_count - b->used_count;
+    if(d==0) d = a->used_count - b->used_count;
 #endif
 #if (CONFIG&2)
-	int i = SIZE; while(d==0 && --i>=0) d =
+    int i = SIZE; while(d==0 && --i>=0) d =
 #else
-	int i; for(i=0;d==0 && i<SIZE;++i) d =
+    int i; for(i=0;d==0 && i<SIZE;++i) d =
 #endif
 #if (CONFIG&4)
         b->symbols[i] - a->symbols[i];
