@@ -75,7 +75,11 @@ exit $?
 
 /*****************************************************************************/
 
-#define ALLOW_PARENTHESIS   (((SIZE)>=8) && !defined(NUMBLE))
+#if (((SIZE)>=8) && !defined(NUMBLE))
+#define ALLOW_PARENTHESIS   1
+#else
+#define ALLOW_PARENTHESIS   0
+#endif
 #define PRIVATE             static
 
 typedef int integer;
