@@ -957,7 +957,7 @@ PRIVATE int find_worst_openmp(state *state, formula *candidate,
 #else
         do {
             int _w = worst, j;
-            for(j=0; j<8 && (color-=nthreads)>=0; ++j) {
+            for(j=0; j<nthreads && (color-=nthreads)>=0; ++j) {
                 struct state state2 = *state;
                 state_update(&state2, candidate->symbols, color);
                 int count = state_compatible_count(&state2, least_c, tab, len);
