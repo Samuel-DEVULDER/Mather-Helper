@@ -23,6 +23,7 @@ exit $?
 #include <math.h>
 #include <unistd.h>
 #include <locale.h>
+#include <stdlib.h>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -75,12 +76,32 @@ exit $?
 
 /*****************************************************************************/
 
-#define ALLOW_PARENTHESIS   (((SIZE)>=8) && !defined(NUMBLE))
+#if (((SIZE)>=8) && !defined(NUMBLE))
+#define ALLOW_PARENTHESIS   1
+#else
+#define ALLOW_PARENTHESIS   0
+#endif
 #define PRIVATE             static
 
 typedef int integer;
 
 PRIVATE const char *A_BOLD="", *A_NORM=""; /* ansi escape sequence */
+
+#ifndef timersub
+#define	timersub(a, b, result)						      \
+  do {									      \
+    (result)->tv_sec = (a)->tv_sec - (b)->tv_sec;			      \
+    (result)->tv_usec = (a)->tv_usec - (b)->tv_usec;			      \
+    if ((result)->tv_usec < 0) {					      \
+      --(result)->tv_sec;						      \
+      (result)->tv_usec += 1000000;					      \
+    }									      \
+  } while (0)
+#endif
+
+#ifdef WIN32
+#define aligned_alloc _aligned_malloc
+#endif
 
 /*****************************************************************************/
 

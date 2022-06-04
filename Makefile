@@ -4,7 +4,7 @@
 CC=gcc
 
 OPENMP=-fopenmp
-OPTIM=-O3 -fshort-enums -Dmarch=native
+OPTIM=-Ofast -fshort-enums -march=native -flto
 DEBUG=#-DDEBUG
 COPTS=-Wall -DSIMD -Dmsse4
 
@@ -32,7 +32,7 @@ play: $(ALL)
 	for exe in $(ALL); do ./$$exe; done
 
 mathler-%$(EXE): mathler.c Makefile
-	$(CC) -o $@ -D$* $(OPTIM) $(COPTS) $(DEBUG) $< CBack-1.0/SRC/CBack.c $(OPENMP)
+	$(CC) -o $@ -D$* $(OPTIM) $(COPTS) $(DEBUG) $< CBack-1.0/SRC/CBack.c $(OPENMP) -lm
 
 ###############################################################################
 CORES:=$(shell grep -c ^processor /proc/cpuinfo)
