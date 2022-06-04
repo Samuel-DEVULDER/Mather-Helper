@@ -4,7 +4,7 @@
 CC=gcc
 
 OPENMP=-fopenmp
-OPTIM=-Ofast -fshort-enums -Dmarch=native -flto
+OPTIM=-Ofast -fshort-enums -march=native -flto
 DEBUG=#-DDEBUG
 COPTS=-Wall -DSIMD -Dmsse4
 
