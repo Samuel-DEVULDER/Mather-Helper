@@ -758,7 +758,8 @@ PRIVATE void findall(rat *num) {
     {
         formula *f = 
 #ifdef __SSE4_1__
-            aligned_alloc(sizeof(SIMD_TYPE), sizeof(formula));
+#define ALIGN sizeof(SIMD_TYPE)
+            aligned_alloc(ALIGN, ((sizeof(formula)+ALIGN-1)/ALIGN)*ALIGN);
 #else
             malloc(sizeof(formula));
 #endif
