@@ -100,7 +100,7 @@ PRIVATE const char *A_BOLD="", *A_NORM=""; /* ansi escape sequence */
 #endif
 
 #ifdef WIN32
-#define aligned_alloc _aligned_malloc
+#define aligned_alloc(x,y) _aligned_malloc((y),(x))
 #endif
 
 /*****************************************************************************/
@@ -758,7 +758,7 @@ PRIVATE void findall(rat *num) {
     {
         formula *f = 
 #ifdef __SSE4_1__
-            aligned_alloc(2*sizeof(SIMD_TYPE), sizeof(formula));
+            aligned_alloc(sizeof(SIMD_TYPE), sizeof(formula));
 #else
             malloc(sizeof(formula));
 #endif
