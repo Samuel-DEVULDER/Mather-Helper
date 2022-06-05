@@ -1069,7 +1069,7 @@ PRIVATE bool least_worst(state *state) {
         long long t = use_sampling_threshold * RAND_MAX;
         rnd_thr = t/formulae.len/candidates.len;
         t = (rnd_thr*(100*100ll))/RAND_MAX;
-        printf("%d.%02d%% sampl...", (int)(t/100), (int)(t%100));
+        printf("%d.%01d%% sampl...", (int)(t/10), (int)(t%10));
         fflush(stdout);
     }
     progress(-candidates.len);
