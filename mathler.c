@@ -32,40 +32,40 @@ exit $?
 #include "CBack-1.0/SRC/CBack.h"
 
 #ifdef EASY
-#define SIZE    5
-#define MAX_OP  1
-#define URL     "https://easy.mathler.com/"
+#define SIZE                5
+#define MAX_OP              1
+#define URL                 "https://easy.mathler.com/"
 
 #elif defined(NORMAL)
-#define SIZE    6
-#define MAX_OP  2
-#define URL     "https://mathler.com/"
+#define SIZE                6
+#define MAX_OP              2
+#define URL                 "https://mathler.com/"
 
 #elif defined(HARD)
-#define SIZE    8
-#define MAX_OP  3
-#define URL     "https://hard.mathler.com/"
+#define SIZE                8
+#define MAX_OP              3
+#define URL                 "https://hard.mathler.com/"
 
 #elif defined(THENUMBLE)
-#define SIZE    7
-#define URL     "https://www.thenumble.app/"
+#define SIZE                7
+#define URL                 "https://www.thenumble.app/"
 
 #elif defined(NUMBLE)
-#define SIZE    8
-#define URL     "https://www.mathix.org/numble/"
+#define SIZE                8
+#define URL                 "https://www.mathix.org/numble/"
 
 #else
 #error Please define one of EASY, NORMAL, HARD, NUMBLE, THENUMBLE.
-#define SIZE    1
-#define URL     ""
+#define SIZE                1
+#define URL                 ""
 #endif
 
 #ifndef MAX_OP
-#define MAX_OP  SIZE
+#define MAX_OP              SIZE
 #endif
 
 #ifndef CONFIG
-#define CONFIG 2
+#define CONFIG              21
 #endif
 
 #define DO_SHUFFLE          0 //defined(_OPENMP)
