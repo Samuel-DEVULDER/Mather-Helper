@@ -1415,7 +1415,7 @@ int main(int argc, char **argv) {
         printf("Solved in %s%d%s round%s.\n", A_BOLD, i, A_NORM, i>1?"s":"");
         if(formulae.len>0)
             printf("You were lucky. There existed %s%u%s other possibilit%s.\n", 
-                A_BOLD, (unsigned)formulae.len, formulae.len>1?"ies":"y", A_NORM);
+                A_BOLD, (unsigned)formulae.len, A_NORM, formulae.len>1?"ies":"y");
 #ifdef NUMBLE
         if(formulae.len==0) getchar();
         title();
