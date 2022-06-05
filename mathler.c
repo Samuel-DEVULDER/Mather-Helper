@@ -65,7 +65,7 @@ exit $?
 #endif
 
 #ifndef CONFIG
-#define CONFIG              21
+#define CONFIG              25
 #endif
 
 #define DO_SHUFFLE          0 //defined(_OPENMP)
@@ -1257,8 +1257,10 @@ PRIVATE int cmp_formula(const void *_a, const void *_b) {
     formula * const *x = _a, * const *y = _b;
     const formula *a = *x, *b = *y;
     int d=0;
+#if ALLOW_PARENTHESIS
 #if (CONFIG&8)
     d = (b->unused & MSKbra) - (a->unused & MSKbra);
+#endif
 #endif
 #if (CONFIG&1)
     if(d==0) d = b->used_count - a->used_count;
