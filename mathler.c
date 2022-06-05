@@ -64,9 +64,9 @@ exit $?
 #define MAX_OP  SIZE
 #endif
 
-// #ifndef CONFIG
-// #define CONFIG 2
-// #endif
+#ifndef CONFIG
+#define CONFIG 2
+#endif
 
 #define DO_SHUFFLE          0 //defined(_OPENMP)
 #define DO_SORT             1
@@ -88,14 +88,14 @@ typedef int integer;
 PRIVATE const char *A_BOLD="", *A_NORM=""; /* ansi escape sequence */
 
 #ifndef timersub
-#define	timersub(a, b, result)						      \
-  do {									      \
-    (result)->tv_sec = (a)->tv_sec - (b)->tv_sec;			      \
-    (result)->tv_usec = (a)->tv_usec - (b)->tv_usec;			      \
-    if ((result)->tv_usec < 0) {					      \
-      --(result)->tv_sec;						      \
-      (result)->tv_usec += 1000000;					      \
-    }									      \
+#define timersub(a, b, result)                            \
+  do {                                                    \
+    (result)->tv_sec = (a)->tv_sec - (b)->tv_sec;         \
+    (result)->tv_usec = (a)->tv_usec - (b)->tv_usec;      \
+    if ((result)->tv_usec < 0) {                          \
+      --(result)->tv_sec;                                 \
+      (result)->tv_usec += 1000000;                       \
+    }                                                     \
   } while (0)
 #endif
 
@@ -757,8 +757,8 @@ PRIVATE void findall(rat *num) {
 
     {
         formula *f = 
-#ifdef __SSE4_1__
-#define ALIGN sizeof(SIMD_TYPE)
+#if defined(__SSE4_1__)
+#define ALIGN (sizeof(SIMD_TYPE))
             aligned_alloc(ALIGN, ((sizeof(formula)+ALIGN-1)/ALIGN)*ALIGN);
 #else
             malloc(sizeof(formula));
@@ -1160,6 +1160,7 @@ PRIVATE bool play_round(state *state, bool relaxed) {
         int i, index;
         mask symbs[SIZE];
         struct state back = *state;
+        int c;
 
         printf(formulae.len>1 ? "Try: %s" : "Sol: %s", A_BOLD);
         for(i=0; i<SIZE; ++i) {
@@ -1170,6 +1171,7 @@ PRIVATE bool play_round(state *state, bool relaxed) {
 
 #if !defined(NUMBLE) || !defined(DEBUG)
         if(formulae.len<=1) {
+            --formulae.len;
             fflush(stdout);
             return false;
         }
@@ -1178,7 +1180,7 @@ PRIVATE bool play_round(state *state, bool relaxed) {
         fflush(stdout);
 
         for(colors = i = 0, index = 1; i<SIZE; ) {
-            int c; int code = -1;
+            int code = -1;
             switch((c = getchar())) {
                 case EOF: exit(0); break;
 
@@ -1197,8 +1199,13 @@ PRIVATE bool play_round(state *state, bool relaxed) {
                 ++i; index *= 3;
             }
         }
+        if(c!='\n') c = getchar();
 
-        if(0 == colors) return false;
+        if(0 == colors) {
+            --formulae.len;
+            fflush(stdout);
+            return false;
+        }
 
         state_update(state, symbs, colors);
 #ifdef DEBUG
@@ -1247,18 +1254,6 @@ PRIVATE bool play_round(state *state, bool relaxed) {
 }
 
 /*****************************************************************************/
-//23 67 15 1819 22=10110
-// 22=101
-//  6=105
-// 10=106
-// 19=105
-// 26=105
-// 30=106
-// 14=107
-//  3=108
-//  7=108
-// 23=108
-// 18=110
 
 #if DO_SORT
 PRIVATE int cmp_formula(const void *_a, const void *_b) {
@@ -1419,7 +1414,12 @@ int main(int argc, char **argv) {
 #endif
         for(i=1; play_round(&state, i==1); ++i);
         printf("Solved in %s%d%s round%s.\n", A_BOLD, i, A_NORM, i>1?"s":"");
+        if(formulae.len>0)
+            printf("You were lucky. There existed %s%u%s other possibilit%s.\n", 
+                A_BOLD, (unsigned)formulae.len, formulae.len>1?"ies":"y", A_NORM);
 #ifdef NUMBLE
+        if(formulae.len==0) getchar();
+        title();
     } while(true);
 #endif
     while(found.len) {free(found.tab[0]); ARRAY_REM(found, 0);}
