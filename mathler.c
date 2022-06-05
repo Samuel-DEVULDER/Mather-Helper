@@ -223,20 +223,17 @@ PRIVATE int progress(int count) {
             }
         }
         if(cpt_sec>=0 && cpt>=cpt_sec) {
-            long long t; const int base=100; cpt = 0;
+            long long t; const int base=10; int i; cpt = 0;
             gettime(&curr);
             timersub(&curr, &start, &temp);
             t = (100*base*count)/total;
-            t = printf(" %d.%02d%% (%ds, rem. %ds)",
+            t = printf(" %d.%02d%% (%ds, rem %ds)",
                 (int)t/base, (int)t%base,
                 (int)temp.tv_sec,
                 (int)(temp.tv_sec*(total-count))/count);
-            while(t<last) {
-                putchar(' ');
-                ++t;
-            }
-            last = t;
-            while(t--) putchar('\b');
+			for(i = t; i<last; ++i) putchar(' ');
+            i = last = t;
+            while(i--) putchar('\b');
             fflush(stdout);
         }
     }

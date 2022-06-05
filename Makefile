@@ -1,12 +1,17 @@
 ###############################################################################
 # Makefile for mathler-helpoer
 ###############################################################################
-CC=gcc
 
-OPENMP=-fopenmp
-OPTIM=-Ofast -fshort-enums -Dmarch=native -flto
+# CC=i686-w64-mingw32-gcc -static
+# CC=i686-pc-cygwin-gcc
+CC=gcc
+OBJDUMP=objdump
+
+OPENMP=-fopenmp 
+OPTIM=-Ofast -fshort-enums -Dmarch=native 
 DEBUG=#-DDEBUG
 COPTS=-Wall -DSIMD -Dmsse4
+LINK=-flto -lm $(OPENMP)
 
 ifeq ($(OS),Windows_NT)
 EXE=.exe
@@ -26,13 +31,13 @@ clean:
 peekasm: 
 	$(CC) -o tmp.o mathler.c \
 	-DHARD $(OPTIM) $(COPTS) $(DEBUG) -c -fno-inline -g
-	objdump -d -S tmp.o | less
+	$(OBJDUMP) -D -S tmp.o | less
 
 play: $(ALL)
 	for exe in $(ALL); do ./$$exe; done
 
 mathler-%$(EXE): mathler.c Makefile
-	$(CC) -o $@ -D$* $(OPTIM) $(COPTS) $(DEBUG) $< CBack-1.0/SRC/CBack.c $(OPENMP) -lm
+	$(CC) -o $@ -D$* $(OPTIM) $(COPTS) $(DEBUG) $< CBack-1.0/SRC/CBack.c $(LINK)
 
 ###############################################################################
 CORES:=$(shell grep -c ^processor /proc/cpuinfo)
