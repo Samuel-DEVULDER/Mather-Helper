@@ -227,7 +227,7 @@ PRIVATE int progress(int count) {
             gettime(&curr);
             timersub(&curr, &start, &temp);
             t = (100*base*count)/total;
-            t = printf(" %d.%02d%% (%ds, rem %ds)",
+            t = printf(" %d.%01d%% (%ds, rem %ds)",
                 (int)t/base, (int)t%base,
                 (int)temp.tv_sec,
                 (int)(temp.tv_sec*(total-count))/count);
