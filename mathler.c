@@ -231,9 +231,9 @@ PRIVATE int progress(int count) {
                 (int)t/base, (int)t%base,
                 (int)temp.tv_sec,
                 (int)(temp.tv_sec*(total-count))/count);
-			for(i = t; i<last; ++i) putchar(' ');
-            i = last = t;
+            for(i = t; i<last; ++i) putchar(' ');
             while(i--) putchar('\b');
+            last = t;
             fflush(stdout);
         }
     }
@@ -409,20 +409,20 @@ PRIVATE void rat_div(rat *r, rat *u, rat *v) {
 /*****************************************************************************/
 
 typedef enum {
-    MSK1=1,
-    MSK9=2,
-    MSK2=4,
-    MSK8=8,
-    MSK3=16,
-    MSK7=32,
-    MSK4=64,
-    MSK6=128,
-    MSK0=256,
-    MSK5=512,
-    MSKadd=1024,
-    MSKsub=2048,
-    MSKmul=4096,
-    MSKdiv=8192,
+    MSK5=1,
+    MSK4=2,
+    MSK6=4,
+    MSK3=8,
+    MSK7=16,
+    MSK2=32,
+    MSK8=64,
+    MSK1=128,
+    MSK9=256,
+    MSK0=512,
+    MSKsub=1024,
+    MSKadd=2048,
+    MSKdiv=4096,
+    MSKmul=8192,
 #if ALLOW_PARENTHESIS
     MSKbra=16384,
     MSKket=32768,
