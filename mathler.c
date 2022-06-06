@@ -232,7 +232,7 @@ PRIVATE int progress(int count) {
                 (int)temp.tv_sec,
                 (int)(temp.tv_sec*(total-count))/count);
             for(i = t; i<last; ++i) putchar(' ');
-            while(--i>=0) putchar('\b');
+            while(i--) putchar('\b');
             last = t;
             fflush(stdout);
         }
