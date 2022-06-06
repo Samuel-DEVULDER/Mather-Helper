@@ -231,9 +231,9 @@ PRIVATE int progress(int count) {
                 (int)t/base, (int)t%base,
                 (int)temp.tv_sec,
                 (int)(temp.tv_sec*(total-count))/count);
-			for(i = t; i<last; ++i) putchar(' ');
-            i = last = t;
-            while(i--) putchar('\b');
+            for(i = t; i<last; ++i) putchar(' ');
+            while(--i>=0) putchar('\b');
+            last = t;
             fflush(stdout);
         }
     }
