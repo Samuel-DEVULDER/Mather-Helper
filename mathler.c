@@ -65,7 +65,7 @@ exit $?
 #endif
 
 #ifndef CONFIG
-#define CONFIG              25
+#define CONFIG              2
 #endif
 
 #define DO_SHUFFLE          0 //defined(_OPENMP)
