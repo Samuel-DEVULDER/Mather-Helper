@@ -859,7 +859,8 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
         r = div(r.quot, 3);
         switch(r.rem) {
             case GREEN:
-                if(st->impossible[i] & m) return false;
+				// should not happen
+                //if(st->impossible[i] & m) return false;
                 st->impossible[i] = MSKall ^ m;
                 st->mandatory    |=  m;
 #ifdef NUMBLE
