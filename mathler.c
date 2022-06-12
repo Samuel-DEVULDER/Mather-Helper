@@ -1189,7 +1189,7 @@ PRIVATE bool play_round(state *state, bool relaxed) {
                 case '-': code = BLACK;  break;
 
                 default:
-                printf("ERROR, invalid char: %c\nAns:  ", (char)c);
+                printf("ERROR, invalid char: %c\nAns: ", (char)c);
                 fflush(stdout); colors = i = 0; index = 1; 
 				while(c!='\n') c = getchar();
 				break;
@@ -1420,7 +1420,10 @@ int main(int argc, char **argv) {
             printf("You were lucky. There existed %s%u%s other possibilit%s.\n", 
                 A_BOLD, (unsigned)formulae.len, A_NORM, formulae.len>1?"ies":"y");
 #ifdef NUMBLE
-        if(formulae.len==0) getchar();
+        if(formulae.len==0) {
+			printf("Press enter..."); fflush(stdout); 
+			while('\n'!=getchar());
+		}
         title();
     } while(true);
 #endif
