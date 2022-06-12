@@ -1189,15 +1189,17 @@ PRIVATE bool play_round(state *state, bool relaxed) {
                 case '-': code = BLACK;  break;
 
                 default:
-                printf("ERROR, invalid char: %c\ntry:  ", (char)c);
-                fflush(stdout); colors = i = 0; index = 1; break;
+                printf("ERROR, invalid char: %c\nAns:  ", (char)c);
+                fflush(stdout); colors = i = 0; index = 1; 
+				while(c!='\n') c = getchar();
+				break;
             }
             if(code>=0) {
                 colors += code*index;
                 ++i; index *= 3;
             }
         }
-        if(c!='\n') c = getchar();
+        while(c!='\n') c = getchar();
 
         if(0 == colors) {
             --formulae.len;
