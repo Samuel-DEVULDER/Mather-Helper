@@ -1182,7 +1182,7 @@ PRIVATE bool play_round(state *state, bool relaxed) {
             switch((c = getchar())) {
                 case EOF: exit(0); break;
 
-                case ' ': case '\r': case '\n': break;
+                case ' ': case '\r': case '\n': case '\t': break;
 
                 case '!': code = GREEN;  break;
                 case '+': code = YELLOW; break;
@@ -1386,7 +1386,9 @@ int main(int argc, char **argv) {
 
 #ifdef NUMBLE
     do {
-        printf("Finding equations..."); fflush(stdout);
+		if(found.len==0) {
+			printf("Finding equations..."); fflush(stdout);
+		}
 #else
         if(rat_whole(&target))
                 printf("Finding equations for %s%d%s...",
@@ -1396,11 +1398,15 @@ int main(int argc, char **argv) {
         fflush(stdout);
 #endif
 
-        formulae.len = 0;
-        progress(-1); _Backtracking(findall(&target)); i = progress(0);
-        printf("done ("); if(i>1) printf("%s%d%s secs, ", A_BOLD, i, A_NORM);
-        printf("%s%'u%s found)\n", A_BOLD, (unsigned)formulae.len, A_NORM);
-        ARRAY_CPY(found, formulae);
+		if(found.len==0) {
+			formulae.len = 0;
+			progress(-1); _Backtracking(findall(&target)); i = progress(0);
+			printf("done ("); if(i>1) printf("%s%d%s secs, ", A_BOLD, i, A_NORM);
+			printf("%s%'u%s found)\n", A_BOLD, (unsigned)formulae.len, A_NORM);
+			ARRAY_CPY(found, formulae);
+		} else {
+			ARRAY_CPY(formulae, found);
+		}
 
 #if DO_SHUFFLE
         shuffle_formulae();
