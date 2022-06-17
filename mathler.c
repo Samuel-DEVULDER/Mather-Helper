@@ -955,7 +955,10 @@ PRIVATE void find_worst2(least_worst_data *data, state *state, int depth, formul
 			if(nthreads>1) 
 			#pragma omp critical
 			{
-				if(count > data->worst) data->worst = count;
+				if(count > data->worst) {
+					data->worst = count;
+					// printf("worst = %d\n", count);
+				}
 			}
 			else
 #endif
@@ -964,12 +967,12 @@ PRIVATE void find_worst2(least_worst_data *data, state *state, int depth, formul
 		}
 	} else {
 		int color, least_c = data->least_c; --depth;
-		for(color = data->all_colors; --color>=0;) {
-			formula **candidate = data->candidates;
-			for(;*candidate; ++candidate) if(*candidate!=candidate2) {
+			for(color = data->all_colors; --color>=0;) {
+		formula **candidate = data->candidates, *f;
+		while((f=*candidate++)) if(f!=candidate2 && state_compatible(state, f)) {
 				struct state state2 = *state;
-				state_update(&state2, (*candidate)->symbols, color);
-				find_worst2(data, &state2, depth, *candidate);
+				state_update(&state2, f->symbols, color);
+				find_worst2(data, &state2, depth, f);
 				if(data->worst >= least_c) return;
 			}
 		}
@@ -1093,6 +1096,15 @@ PRIVATE bool least_worst(state *state) {
 #endif
 			data.least_c = data.worst;
 			least_f = candidates.tab[i];
+
+			if(1) {
+				formula *t = data.candidates[0];
+				formula **l = &data.candidates[1];
+				data.candidates[0] = data.candidate2;
+				while(*l != data.candidate2) ++l;
+				*l = t;
+			}
+			
 			if(data.least_c==1) break;
 		}
 	}
@@ -1328,6 +1340,7 @@ int main(int argc, char **argv) {
 
     srand(time(0));
     setlocale(LC_ALL, "");
+	{int ignored=nice(20);(void)ignored;}
 
     if(isatty(fileno(stdout))) {
         A_BOLD = "\033[1m";
@@ -1409,7 +1422,7 @@ int main(int argc, char **argv) {
 #else
         least_worst(&state);
 #endif
-        for(i=1; play_round(&state, 0 && i==1); ++i);
+        i=0; do ++i; while(play_round(&state, 0 && i==1));
         printf("Solved in %s%d%s round%s.\n", A_BOLD, i, A_NORM, i>1?"s":"");
         if(formulae.len>0)
             printf("You were lucky. There existed %s%u%s other possibilit%s.\n", 
