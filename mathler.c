@@ -74,7 +74,9 @@ exit $?
 #define DO_SORT             1
 #define FASTER_RAND         1
 
-#define MAX_FORMULAE_EXACT  (15000)
+#define MAX_CANDIDATES		(15000)
+#define MAX_SAMPLES			(15000*4)
+#define MIN_SAMPLE_RATIO	(0.01)
 
 /*****************************************************************************/
 
@@ -206,7 +208,7 @@ PRIVATE int progress(int count) {
         last    = 0;
         cpt     = 0;
         gettime(&start);
-    } else if(count == INT_MAX) {
+    } else if(count == INT_MAX) { // undef
         static char *mill = "-\\|/";
         if(((++cpt)&63)==0) {
             int i;
@@ -725,6 +727,7 @@ typedef struct formula {
 } formula;
 
 PRIVATE ARRAY_DECL(formula *, formulae);
+PRIVATE int used_depth;
 
 #ifdef _OPENMP
 PRIVATE int nthreads = 1;
@@ -777,7 +780,7 @@ PRIVATE void findall(rat *num) {
         ARRAY_ADD(formulae, f);
     }
 
-#ifdef DEBUG
+#ifdef DEBUGxx
 {
     static int num = 0; int i;
     for(i=0; i<SIZE; ++i) putchar(buffer[i]);
@@ -837,6 +840,7 @@ PRIVATE void state_init(state *s) {
     s->mandatory  = MSKnone;
 }
 
+// returns false if update set is empty
 PRIVATE bool state_update(state *st, mask *formula, int colors) {
     mask yellow_ones = MSKnone;
     mask forbidden   = MSKnone;
@@ -882,7 +886,9 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
         mask m = MSKall ^ st->impossible[i];
         if((m & -m) != m) {
             st->impossible[i] |= forbidden;
+			m &= ~forbidden;
         }
+		if(MSKnone == m) return false;
     }
 
     return true;
@@ -967,13 +973,14 @@ PRIVATE void find_worst2(least_worst_data *data, state *state, int depth, formul
 		}
 	} else {
 		int color, least_c = data->least_c; --depth;
-			for(color = data->all_colors; --color>=0;) {
 		formula **candidate = data->candidates, *f;
-		while((f=*candidate++)) if(f!=candidate2 && state_compatible(state, f)) {
+		while((f=*candidate++)) if(/*f!=candidate2 &&*/ state_compatible(state, f)) {
+			for(color = data->all_colors; --color>=0;) {
 				struct state state2 = *state;
-				state_update(&state2, f->symbols, color);
-				find_worst2(data, &state2, depth, f);
-				if(data->worst >= least_c) return;
+				if(state_update(&state2, f->symbols, color)) {
+					find_worst2(data, &state2, depth, f);
+					if(data->worst >= least_c) return;
+				}
 			}
 		}
 	}
@@ -990,8 +997,9 @@ PRIVATE void find_worst(least_worst_data *data, state *state, formula *candidate
 		int color = data->all_colors + omp_get_thread_num();
 		while((color-=nthreads)>=0 && data->worst<least_c) {
 			struct state state2 = *state;
-			state_update(&state2, candidate->symbols, color);
-			find_worst2(data, &state2, depth, candidate);
+			if(state_update(&state2, candidate->symbols, color)) {
+				find_worst2(data, &state2, depth, candidate);
+			}
 		}
 	} else
 #endif
@@ -1000,16 +1008,22 @@ PRIVATE void find_worst(least_worst_data *data, state *state, formula *candidate
 		int color = data->all_colors;  
 		while(--color>=0 && data->worst<least_c) {
 			struct state state2 = *state;	
-			state_update(&state2, candidate->symbols, color);
-			find_worst2(data, &state2, depth, candidate);
+			if(state_update(&state2, candidate->symbols, color)) {
+				find_worst2(data, &state2, depth, candidate);
+			}
 		}
 	}
 }
 
 PRIVATE bool least_worst(state *state) {
-    const long long use_sampling_threshold =
-            MAX_FORMULAE_EXACT*(long long)MAX_FORMULAE_EXACT;
-    int             rnd_thr = -1, i;
+    const double max_ops =((double)MAX_CANDIDATES)*MAX_SAMPLES*ipow(3,8);
+	const int all_colors = ipow(3,SIZE);
+    
+	int rnd_thr = -1;
+	int depth = 2;
+	
+	double num_ops;
+	int i;
 
     ARRAY_DECL(formula *, candidates);
     ARRAY_DECL(formula *, samples);
@@ -1028,21 +1042,21 @@ PRIVATE bool least_worst(state *state) {
     }
 
 
-	data.all_colors = ipow(3,SIZE);
+	data.all_colors = all_colors;
     data.least_c = formulae.len+1;
 
     printf("Finding least worst equation..."); fflush(stdout);
     ARRAY_CPY(candidates, formulae);
     ARRAY_CPY(samples,    formulae);
 
-    if(candidates.len >= MAX_FORMULAE_EXACT) {
+    if(candidates.len >= MAX_CANDIDATES) {
         printf("simpl");
         for(i=0; i<candidates.len;) {
             if(candidates.tab[i]->used_count==SIZE)
                 ++i;
             else ARRAY_REM(candidates, i);
         }
-        if(candidates.len >= MAX_FORMULAE_EXACT) {
+        if(candidates.len >= MAX_CANDIDATES) {
             for(i=0; i<candidates.len;) {
                 if((candidates.tab[i]->unused & MSK0))
                     ++i;
@@ -1051,20 +1065,30 @@ PRIVATE bool least_worst(state *state) {
         }
         printf("..."); fflush(stdout);
     }
-
-    if(formulae.len*(long long)candidates.len >= use_sampling_threshold) {
-        long long t = use_sampling_threshold * RAND_MAX;
-        rnd_thr = t/formulae.len/candidates.len;
-        t = (rnd_thr*(100*100ll))/RAND_MAX;
-        printf("%d.%01d%% sampl...", (int)(t/100), (int)(t%100)/10);
-        fflush(stdout);
-    }
 	
+	// printf("%d %d\n", candidates.len, all_colors);
+
+	double survivors = (((double)all_colors)*candidates.len)/5000;
+	num_ops= all_colors*candidates.len*pow(survivors,depth-1)*samples.len;
+	// printf("%g\n", max_ops / num_ops);
+    while(depth>1 && (max_ops / num_ops) < MIN_SAMPLE_RATIO) {
+		printf("--depth..."); 
+		--depth;
+		num_ops /= survivors;
+	}
+	if(num_ops >= max_ops) {
+		double f = max_ops / num_ops;
+		if(f<MIN_SAMPLE_RATIO) f = MIN_SAMPLE_RATIO;
+		printf("%.01f%% sampl...", 100*f); fflush(stdout);
+		rnd_thr = RAND_MAX * f;
+    }
 	
 	ARRAY_ADD(candidates, NULL); --candidates.len;
 	ARRAY_ADD(samples, NULL);    --samples.len;
 	data.candidates   = candidates.tab;
 	data.samples      = samples.tab;
+	
+	used_depth = depth;
 	
     progress(-candidates.len);
     for(i=0; i<candidates.len; ++i) {
@@ -1080,7 +1104,7 @@ PRIVATE bool least_worst(state *state) {
 			ARRAY_ADD(samples, NULL);
         }
 
-		find_worst(&data, state, candidates.tab[i], 2);
+		find_worst(&data, state, candidates.tab[i], depth);
 		progress(i);
 		
 		/* keep the least-worse candidate */
@@ -1238,13 +1262,13 @@ PRIVATE bool play_round(state *state, bool relaxed) {
                         break;
                     }
                 }
-            } else {
-                remove_impossible(state);
-            }
+			} 
+			remove_impossible(state);
             ok = least_worst(state);
             if(relaxed) {
                 *state = back;
                 state_update(state, symbs, colors);
+				remove_impossible(state);
             }
             if(ok) break;
         }
@@ -1340,7 +1364,6 @@ int main(int argc, char **argv) {
 
     srand(time(0));
     setlocale(LC_ALL, "");
-	{int ignored=nice(20);(void)ignored;}
 
     if(isatty(fileno(stdout))) {
         A_BOLD = "\033[1m";
@@ -1385,6 +1408,9 @@ int main(int argc, char **argv) {
     if(nthreads>1) printf("Using %s%d%s threads.\n", A_BOLD, nthreads, A_NORM);
 #endif
 
+	// be nice with the other processes
+	{int ignored=nice(20);(void)ignored;}
+
 #ifdef NUMBLE
     do {
 		if(found.len==0) {
@@ -1417,12 +1443,12 @@ int main(int argc, char **argv) {
 #endif
 		ARRAY_ADD(formulae, NULL);	--formulae.len;
         state_init(&state);
-#if NUMBLE
+#if NUMBLEx
         memcpy(buffer, "9*42=378", SIZE);
 #else
         least_worst(&state);
 #endif
-        i=0; do ++i; while(play_round(&state, 0 && i==1));
+        i=0; do ++i; while(play_round(&state, used_depth==1 && i==1));
         printf("Solved in %s%d%s round%s.\n", A_BOLD, i, A_NORM, i>1?"s":"");
         if(formulae.len>0)
             printf("You were lucky. There existed %s%u%s other possibilit%s.\n", 
