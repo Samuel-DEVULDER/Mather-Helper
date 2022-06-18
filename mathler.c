@@ -74,9 +74,9 @@ exit $?
 #define DO_SORT             1
 #define FASTER_RAND         1
 
-#define MAX_CANDIDATES		(15000)
-#define MAX_SAMPLES			(15000*4)
-#define MIN_SAMPLE_RATIO	(0.10)
+#define MAX_CANDIDATES      (1500)
+#define MAX_SAMPLES         (15000*4)
+#define MIN_SAMPLE_RATIO    (0.01)
 
 /*****************************************************************************/
 
@@ -286,19 +286,26 @@ PRIVATE void *_ARRAY_PTR(void *_array, size_t n) {
 
 #define ARRAY_AT(ARRAY,INDEX)                               \
     *((ARRAY).ptr=_ARRAY_PTR(&(ARRAY),(INDEX)))
-    
+
+#if 1
+#define ARRAY_REM(ARRAY, INDEX)                             \
+    memmove(&(ARRAY).tab[(INDEX)], &(ARRAY).tab[(INDEX)+1], \
+           (--(ARRAY).len - (INDEX))*(ARRAY).cell)
+#else          
 #define ARRAY_REM(ARRAY, INDEX)                             \
     (ARRAY).tab[(INDEX)] = (ARRAY).tab[--(ARRAY).len]
-    
+#endif
+
+#if 1    
 #define ARRAY_ADD(ARRAY,VAL)                                \
     ARRAY_AT((ARRAY),(ARRAY).len++)=(VAL)
-
-#if 0
+#else
 #define ARRAY_ADD(ARRAY, VAL) do {                          \
     _ARRAY_ENSURE_CAPA(&(ARRAY), ++(ARRAY).len);            \
     (ARRAY).tab[(ARRAY).len-1] = (VAL);                     \
 } while(0)
 #endif
+
 #define ARRAY_CPY(DST, SRC) do {                            \
     _ARRAY_PTR(&(DST), (DST).len = (SRC).len);      \
     /* if only whe could do typeof(x)==typeof(y)... */      \
@@ -865,7 +872,7 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
         r = div(r.quot, 3);
         switch(r.rem) {
             case GREEN:
-				// should not happen
+                // should not happen
                 //if(st->impossible[i] & m) return false;
                 st->impossible[i] = MSKall ^ m;
                 st->mandatory    |=  m;
@@ -886,9 +893,9 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
         mask m = MSKall ^ st->impossible[i];
         if((m & -m) != m) {
             st->impossible[i] |= forbidden;
-			m &= ~forbidden;
+            m &= ~forbidden;
         }
-		if(MSKnone == m) return false;
+        if(MSKnone == m) return false;
     }
 
     return true;
@@ -931,7 +938,7 @@ PRIVATE bool state_compatible(state *state, formula *formula) {
 }
 
 PRIVATE int state_compatible_count(state *state, int threshold, formula **sample) {
-	int n = 0;
+    int n = 0;
     while(*sample) {
         if(state_compatible(state, *sample++)) {
             if(++n>threshold) {
@@ -945,91 +952,91 @@ PRIVATE int state_compatible_count(state *state, int threshold, formula **sample
 /* find the worst number of incompatible states for the
    current candidate */
 typedef struct {
-	formula **samples;
-	formula **candidates;
-	formula *candidate2;
-	int all_colors;
-	int least_c;
-	int worst;
+    formula **samples;
+    formula **candidates;
+    formula *candidate2;
+    int all_colors;
+    int least_c;
+    int worst;
 } least_worst_data;
 
 PRIVATE void find_worst2(least_worst_data *data, state *state, int depth, formula *candidate2) {
-	if(depth == 0) {
-		int count = state_compatible_count(state, data->least_c, data->samples);
-		if(count > data->worst) {
+    if(depth == 0) {
+        int count = state_compatible_count(state, data->least_c, data->samples);
+        if(count > data->worst) {
 #ifdef _OPENMP
-			if(nthreads>1) 
-			#pragma omp critical
-			{
-				if(count > data->worst) {
-					data->worst = count;
-					// printf("worst = %d\n", count);
-				}
-			}
-			else
+            if(nthreads>1) 
+            #pragma omp critical
+            {
+                if(count > data->worst) {
+                    data->worst = count;
+                    // printf("worst = %d\n", count);
+                }
+            }
+            else
 #endif
-			data->worst = count;
-			data->candidate2 = candidate2;
-		}
-	} else {
-		int color, least_c = data->least_c; --depth;
-		formula **candidate = data->candidates, *f;
-		while((f=*candidate++)) if(/*f!=candidate2 &&*/ state_compatible(state, f)) {
-			for(color = data->all_colors; --color>=0;) {
-				struct state state2 = *state;
-				if(state_update(&state2, f->symbols, color)) {
-					find_worst2(data, &state2, depth, f);
-					if(data->worst >= least_c) return;
-				}
-			}
-		}
-	}
+            data->worst = count;
+            data->candidate2 = candidate2;
+        }
+    } else {
+        int color, least_c = data->least_c; --depth;
+        formula **candidate = data->candidates, *f;
+        while((f=*candidate++)) if(/*f!=candidate2 &&*/ state_compatible(state, f)) {
+            for(color = data->all_colors; --color>=0;) {
+                struct state state2 = *state;
+                if(state_update(&state2, f->symbols, color)) {
+                    find_worst2(data, &state2, depth, f);
+                    if(data->worst >= least_c) return;
+                }
+            }
+        }
+    }
 }
 
 PRIVATE void find_worst(least_worst_data *data, state *state, formula *candidate, int depth) {
     --depth;
-	
+    
 #ifdef _OPENMP
     if(nthreads>1)
-	#pragma omp parallel 
-	{
-		int least_c = data->least_c;
-		int color = data->all_colors + omp_get_thread_num();
-		while((color-=nthreads)>=0 && data->worst<least_c) {
-			struct state state2 = *state;
-			if(state_update(&state2, candidate->symbols, color)) {
-				find_worst2(data, &state2, depth, candidate);
-			}
-		}
-	} else
+    #pragma omp parallel 
+    {
+        int least_c = data->least_c;
+        int color = data->all_colors + omp_get_thread_num();
+        while((color-=nthreads)>=0 && data->worst<least_c) {
+            struct state state2 = *state;
+            if(state_update(&state2, candidate->symbols, color)) {
+                find_worst2(data, &state2, depth, candidate);
+            }
+        }
+    } else
 #endif
-	{
-		int least_c = data->least_c;
-		int color = data->all_colors;  
-		while(--color>=0 && data->worst<least_c) {
-			struct state state2 = *state;	
-			if(state_update(&state2, candidate->symbols, color)) {
-				find_worst2(data, &state2, depth, candidate);
-			}
-		}
-	}
+    {
+        int least_c = data->least_c;
+        int color = data->all_colors;  
+        while(--color>=0 && data->worst<least_c) {
+            struct state state2 = *state;   
+            if(state_update(&state2, candidate->symbols, color)) {
+                find_worst2(data, &state2, depth, candidate);
+            }
+        }
+    }
 }
 
 PRIVATE bool least_worst(state *state) {
     const double max_ops =((double)MAX_CANDIDATES)*MAX_SAMPLES*ipow(3,8)*nthreads;
-	const int all_colors = ipow(3,SIZE);
+    const int all_colors = ipow(3,SIZE);
     
-	int rnd_thr = -1;
-	int depth = 2;
-	
-	double num_ops;
-	int i;
+    int rnd_thr = -1;
+    int depth = 2;
+    
+    double num_ops;
+    int i;
 
     ARRAY_DECL(formula *, candidates);
     ARRAY_DECL(formula *, samples);
-	formula *least_f = formulae.tab[0];
-	
-	least_worst_data data;
+    formula *least_f = formulae.tab[0];
+    
+    least_worst_data data;
 
     if(formulae.len == 0) return false;
 
@@ -1042,7 +1049,7 @@ PRIVATE bool least_worst(state *state) {
     }
 
 
-	data.all_colors = all_colors;
+    data.all_colors = all_colors;
     data.least_c = formulae.len+1;
 
     printf("Finding least worst equation..."); fflush(stdout);
@@ -1055,6 +1062,15 @@ PRIVATE bool least_worst(state *state) {
                 ++i;
             else ARRAY_REM(candidates, i);
         }
+        #if ALLOW_PARENTHESIS
+        if(candidates.len >= MAX_CANDIDATES) {
+            for(i=0; i<candidates.len;) {
+                if((candidates.tab[i]->unused & MSKbra))
+                    ++i;
+                else ARRAY_REM(candidates, i);
+            }
+        }
+        #endif
         if(candidates.len >= MAX_CANDIDATES) {
             for(i=0; i<candidates.len;) {
                 if((candidates.tab[i]->unused & MSK0))
@@ -1062,37 +1078,48 @@ PRIVATE bool least_worst(state *state) {
                 else ARRAY_REM(candidates, i);
             }
         }
+        if(candidates.len >= MAX_CANDIDATES) {
+            for(i=0; i<candidates.len;) {
+                if((candidates.tab[i]->unused & MSKdiv))
+                    ++i;
+                else ARRAY_REM(candidates, i);
+            }
+        }
         printf("sel(%d)...", candidates.len); fflush(stdout);
     }
-	
-	// printf("%d %d\n", candidates.len, all_colors);
+    
+    // printf("%d %d\n", candidates.len, all_colors);
 
-	double survivors = (((double)all_colors)*candidates.len)/5000;
-	num_ops= all_colors*candidates.len*pow(survivors,depth-1)*samples.len;
-	// printf("%g\n", max_ops / num_ops);
-    // while(depth>1 && (max_ops / num_ops) < MIN_SAMPLE_RATIO) {
-		// printf("depth..."); 
-		// --depth;
-		// num_ops /= survivors;
-	// }
-	if(num_ops >= max_ops) {
-		double f = max_ops / num_ops;
-		if(f<MIN_SAMPLE_RATIO) f = MIN_SAMPLE_RATIO;
-		printf("red(%.01f%%)...", 100*f); fflush(stdout);
-		rnd_thr = RAND_MAX * f;
+    double survivors = (((double)all_colors)*candidates.len)/10000;
+    num_ops= all_colors*candidates.len*pow(survivors,depth-1)*samples.len;
+    // printf("%g\n", max_ops / num_ops);
+    while(depth>1 && (max_ops / num_ops) < MIN_SAMPLE_RATIO) {
+        printf("depth..."); 
+        --depth;
+        num_ops /= survivors;
     }
-	
-	ARRAY_ADD(candidates, NULL); --candidates.len;
-	ARRAY_ADD(samples, NULL);    --samples.len;
-	data.candidates   = candidates.tab;
-	data.samples      = samples.tab;
-	
-	used_depth = depth;
-	
+    if(num_ops >= max_ops) {
+        double f = max_ops / num_ops;
+        if(f<MIN_SAMPLE_RATIO) f = MIN_SAMPLE_RATIO;
+        printf("sample(%.01f%%)...", 100*f); fflush(stdout);
+        rnd_thr = RAND_MAX * f;
+    }
+    
+    ARRAY_ADD(candidates, NULL); --candidates.len;
+    ARRAY_ADD(samples, NULL);    --samples.len;
+    data.candidates   = candidates.tab;
+    data.samples      = samples.tab;
+    
+    used_depth = depth;
+	if(depth==2) {
+		printf("lookahead(2)...");
+		fflush(stdout);
+	}
+    
     progress(-candidates.len);
     for(i=0; i<candidates.len; ++i) {
-	    data.worst = 0;
-		
+        data.worst = 0;
+        
         /* refesh our sample list from time to time */
         if(rnd_thr>=0 && 0==(i & 7)) {
             int j;
@@ -1100,37 +1127,37 @@ PRIVATE bool least_worst(state *state) {
             for(j=0; j<formulae.len; ++j) if(j==i || rand()<=rnd_thr) {
                 ARRAY_ADD(samples, formulae.tab[j]);
             }
-			ARRAY_ADD(samples, NULL);
+            ARRAY_ADD(samples, NULL);
         }
 
-		find_worst(&data, state, candidates.tab[i], depth);
-		progress(i);
-		
-		/* keep the least-worse candidate */
-		if(data.worst < data.least_c) {
+        find_worst(&data, state, candidates.tab[i], depth);
+        progress(i);
+        
+        /* keep the least-worse candidate */
+        if(data.worst < data.least_c) {
 #if 1 //def DEBUG
-			int  j;
-			printf("\n%5d [", data.worst); fflush(stdout);
-			for(j=0; j<SIZE; ++j) putchar(mask_to_char(candidates.tab[i]->symbols[j]));
-			putchar(' ');
-			for(j=0; j<SIZE; ++j) putchar(mask_to_char(data.candidate2->symbols[j]));
-			putchar(']');
-			fflush(stdout);
+            int  j;
+            printf("\n%5d [", data.worst); fflush(stdout);
+            for(j=0; j<SIZE; ++j) putchar(mask_to_char(candidates.tab[i]->symbols[j]));
+            putchar(' ');
+            for(j=0; j<SIZE; ++j) putchar(mask_to_char(data.candidate2->symbols[j]));
+            putchar(']');
+            fflush(stdout);
 #endif
-			data.least_c = data.worst;
-			least_f = candidates.tab[i];
+            data.least_c = data.worst;
+            least_f = candidates.tab[i];
 
-			if(1) {
-				formula *t = data.candidates[0];
-				formula **l = &data.candidates[1];
-				data.candidates[0] = data.candidate2;
-				while(*l != data.candidate2) ++l;
-				*l = t;
-			}
-			
-			if(data.least_c==1) break;
-		}
-	}
+            if(1) {
+                formula *t = data.candidates[0];
+                formula **l = &data.candidates[1];
+                data.candidates[0] = data.candidate2;
+                while(*l != data.candidate2) ++l;
+                *l = t;
+            }
+            
+            if(data.least_c==1) break;
+        }
+    }
     ARRAY_DONE(samples);
     ARRAY_DONE(candidates);
     printf("done");
@@ -1216,8 +1243,8 @@ PRIVATE bool play_round(state *state, bool relaxed) {
                 default:
                 printf("ERROR, invalid char: %c\nAns: ", (char)c);
                 fflush(stdout); colors = i = 0; index = 1; 
-				while(c!='\n') c = getchar();
-				break;
+                while(c!='\n') c = getchar();
+                break;
             }
             if(code>=0) {
                 colors += code*index;
@@ -1261,13 +1288,13 @@ PRIVATE bool play_round(state *state, bool relaxed) {
                         break;
                     }
                 }
-			} 
-			remove_impossible(state);
+            } 
+            remove_impossible(state);
             ok = least_worst(state);
             if(relaxed) {
                 *state = back;
                 state_update(state, symbs, colors);
-				remove_impossible(state);
+                remove_impossible(state);
             }
             if(ok) break;
         }
@@ -1407,14 +1434,14 @@ int main(int argc, char **argv) {
     if(nthreads>1) printf("Using %s%d%s threads.\n", A_BOLD, nthreads, A_NORM);
 #endif
 
-	// be nice with the other processes
-	{int ignored=nice(20);(void)ignored;}
+    // be nice with the other processes
+    {int ignored=nice(20);(void)ignored;}
 
 #ifdef NUMBLE
     do {
-		if(found.len==0) {
-			printf("Finding equations..."); fflush(stdout);
-		}
+        if(found.len==0) {
+            printf("Finding equations..."); fflush(stdout);
+        }
 #else
         if(rat_whole(&target))
                 printf("Finding equations for %s%d%s...",
@@ -1424,15 +1451,15 @@ int main(int argc, char **argv) {
         fflush(stdout);
 #endif
 
-		if(found.len==0) {
-			formulae.len = 0;
-			progress(-1); _Backtracking(findall(&target)); i = progress(0);
-			printf("done ("); if(i>1) printf("%s%d%s secs, ", A_BOLD, i, A_NORM);
-			printf("%s%'u%s found)\n", A_BOLD, (unsigned)formulae.len, A_NORM);
-			ARRAY_CPY(found, formulae);
-		} else {
-			ARRAY_CPY(formulae, found);
-		}
+        if(found.len==0) {
+            formulae.len = 0;
+            progress(-1); _Backtracking(findall(&target)); i = progress(0);
+            printf("done ("); if(i>1) printf("%s%d%s secs, ", A_BOLD, i, A_NORM);
+            printf("%s%'u%s found)\n", A_BOLD, (unsigned)formulae.len, A_NORM);
+            ARRAY_CPY(found, formulae);
+        } else {
+            ARRAY_CPY(formulae, found);
+        }
 
 #if DO_SHUFFLE
         shuffle_formulae();
@@ -1440,7 +1467,7 @@ int main(int argc, char **argv) {
 #if DO_SORT
         sort_formulae();
 #endif
-		ARRAY_ADD(formulae, NULL);	--formulae.len;
+        ARRAY_ADD(formulae, NULL);  --formulae.len;
         state_init(&state);
 #if NUMBLEx
         memcpy(buffer, "9*42=378", SIZE);
@@ -1454,9 +1481,9 @@ int main(int argc, char **argv) {
                 A_BOLD, (unsigned)formulae.len, A_NORM, formulae.len>1?"ies":"y");
 #ifdef NUMBLE
         if(formulae.len==0) {
-			printf("Press enter..."); fflush(stdout); 
-			while('\n'!=getchar());
-		}
+            printf("Press enter..."); fflush(stdout); 
+            while('\n'!=getchar());
+        }
         title();
     } while(true);
 #endif
