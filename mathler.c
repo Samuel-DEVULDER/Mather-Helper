@@ -76,7 +76,7 @@ exit $?
 
 #define MAX_CANDIDATES		(15000)
 #define MAX_SAMPLES			(15000*4)
-#define MIN_SAMPLE_RATIO	(0.01)
+#define MIN_SAMPLE_RATIO	(0.10)
 
 /*****************************************************************************/
 
@@ -1016,7 +1016,7 @@ PRIVATE void find_worst(least_worst_data *data, state *state, formula *candidate
 }
 
 PRIVATE bool least_worst(state *state) {
-    const double max_ops =((double)MAX_CANDIDATES)*MAX_SAMPLES*ipow(3,8);
+    const double max_ops =((double)MAX_CANDIDATES)*MAX_SAMPLES*ipow(3,8)*nthreads;
 	const int all_colors = ipow(3,SIZE);
     
 	int rnd_thr = -1;
@@ -1050,7 +1050,6 @@ PRIVATE bool least_worst(state *state) {
     ARRAY_CPY(samples,    formulae);
 
     if(candidates.len >= MAX_CANDIDATES) {
-        printf("simpl");
         for(i=0; i<candidates.len;) {
             if(candidates.tab[i]->used_count==SIZE)
                 ++i;
@@ -1063,7 +1062,7 @@ PRIVATE bool least_worst(state *state) {
                 else ARRAY_REM(candidates, i);
             }
         }
-        printf("..."); fflush(stdout);
+        printf("sel(%d)...", candidates.len); fflush(stdout);
     }
 	
 	// printf("%d %d\n", candidates.len, all_colors);
@@ -1071,15 +1070,15 @@ PRIVATE bool least_worst(state *state) {
 	double survivors = (((double)all_colors)*candidates.len)/5000;
 	num_ops= all_colors*candidates.len*pow(survivors,depth-1)*samples.len;
 	// printf("%g\n", max_ops / num_ops);
-    while(depth>1 && (max_ops / num_ops) < MIN_SAMPLE_RATIO) {
-		printf("--depth..."); 
-		--depth;
-		num_ops /= survivors;
-	}
+    // while(depth>1 && (max_ops / num_ops) < MIN_SAMPLE_RATIO) {
+		// printf("depth..."); 
+		// --depth;
+		// num_ops /= survivors;
+	// }
 	if(num_ops >= max_ops) {
 		double f = max_ops / num_ops;
 		if(f<MIN_SAMPLE_RATIO) f = MIN_SAMPLE_RATIO;
-		printf("%.01f%% sampl...", 100*f); fflush(stdout);
+		printf("red(%.01f%%)...", 100*f); fflush(stdout);
 		rnd_thr = RAND_MAX * f;
     }
 	
