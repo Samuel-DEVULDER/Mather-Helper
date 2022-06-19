@@ -1085,7 +1085,7 @@ PRIVATE bool least_worst(state *state) {
                 else ARRAY_REM(candidates, i);
             }
         }
-        printf("sel(%d)...", candidates.len); fflush(stdout);
+        printf("sel(%u)...", (unsigned)candidates.len); fflush(stdout);
     }
     
     // printf("%d %d\n", candidates.len, all_colors);
