@@ -70,13 +70,15 @@ exit $?
 #define CONFIG              2
 #endif
 
+#define DEPTH				2
+
 #define DO_SHUFFLE          0 //defined(_OPENMP)
 #define DO_SORT             1
 #define FASTER_RAND         1
 
-#define MAX_CANDIDATES      (1500)
+#define MAX_CANDIDATES      (5000)
 #define MAX_SAMPLES         (15000*4)
-#define MIN_SAMPLE_RATIO    (0.01)
+#define MIN_SAMPLE_RATIO    (0.20)
 
 /*****************************************************************************/
 
@@ -954,48 +956,38 @@ PRIVATE int state_compatible_count(state *state, int threshold, formula **sample
 typedef struct {
     formula **samples;
     formula **candidates;
-    formula *candidate2;
+    int worst; 
+	int worst_c;
+	int least_c;
     int all_colors;
-    int least_c;
-    int worst;
 } least_worst_data;
 
-PRIVATE void find_worst2(least_worst_data *data, state *state, int depth, formula *candidate2) {
-    if(depth == 0) {
-        int count = state_compatible_count(state, data->least_c, data->samples);
-        if(count > data->worst) {
+PRIVATE void find_worst2(least_worst_data *data, state *state, int color, formula *candidate) {
+    struct state state2 = *state;
+    if(state_update(&state2, candidate->symbols, color)) {
+		int count = state_compatible_count(&state2, data->least_c, data->samples);
+		if(count > data->worst) {
 #ifdef _OPENMP
-            if(nthreads>1) 
-            #pragma omp critical
-            {
-                if(count > data->worst) {
-                    data->worst = count;
-                    // printf("worst = %d\n", count);
-                }
-            }
-            else
+			if(nthreads>1) 
+			#pragma omp critical
+			{
+				if(count > data->worst) {
+					data->worst   = count;
+					data->worst_c = color;
+				}
+			}
+			else
 #endif
-            data->worst = count;
-            data->candidate2 = candidate2;
-        }
-    } else {
-        int color, least_c = data->least_c; --depth;
-        formula **candidate = data->candidates, *f;
-        while((f=*candidate++)) if(/*f!=candidate2 &&*/ state_compatible(state, f)) {
-            for(color = data->all_colors; --color>=0;) {
-                struct state state2 = *state;
-                if(state_update(&state2, f->symbols, color)) {
-                    find_worst2(data, &state2, depth, f);
-                    if(data->worst >= least_c) return;
-                }
-            }
-        }
-    }
+			{
+				data->worst   = count;
+				data->worst_c = color;
+			}
+		}
+	}
 }
 
-PRIVATE void find_worst(least_worst_data *data, state *state, formula *candidate, int depth) {
-    --depth;
-    
+PRIVATE void find_worst(least_worst_data *data, state *state, formula *candidate) {
+	data->worst = 0;
 #ifdef _OPENMP
     if(nthreads>1)
     #pragma omp parallel 
@@ -1003,32 +995,28 @@ PRIVATE void find_worst(least_worst_data *data, state *state, formula *candidate
         int least_c = data->least_c;
         int color = data->all_colors + omp_get_thread_num();
         while((color-=nthreads)>=0 && data->worst<least_c) {
-            struct state state2 = *state;
-            if(state_update(&state2, candidate->symbols, color)) {
-                find_worst2(data, &state2, depth, candidate);
-            }
+			find_worst2(data, state, color, candidate);
         }
     } else
 #endif
     {
-        int least_c = data->least_c;
+		int least_c = data->least_c;
         int color = data->all_colors;  
         while(--color>=0 && data->worst<least_c) {
-            struct state state2 = *state;   
-            if(state_update(&state2, candidate->symbols, color)) {
-                find_worst2(data, &state2, depth, candidate);
-            }
-        }
+			find_worst2(data, state, color, candidate);
+		}
     }
 }
 
 PRIVATE bool least_worst(state *state) {
-    const double max_ops =((double)MAX_CANDIDATES)*MAX_SAMPLES*ipow(3,8)*nthreads;
+    const double max_ops =((double)MAX_CANDIDATES)*MAX_SAMPLES*nthreads;
     const int all_colors = ipow(3,SIZE);
     
     int rnd_thr = -1;
     int depth = 2;
     
+	int least1, least2;
+	
     double num_ops;
     int i;
 
@@ -1048,9 +1036,8 @@ PRIVATE bool least_worst(state *state) {
         return true;
     }
 
-
     data.all_colors = all_colors;
-    data.least_c = formulae.len+1;
+	least2 = least1 = formulae.len;
 
     printf("Finding least worst equation..."); fflush(stdout);
     ARRAY_CPY(candidates, formulae);
@@ -1090,14 +1077,7 @@ PRIVATE bool least_worst(state *state) {
     
     // printf("%d %d\n", candidates.len, all_colors);
 
-    double survivors = (((double)all_colors)*candidates.len)/10000;
-    num_ops= all_colors*candidates.len*pow(survivors,depth-1)*samples.len;
-    // printf("%g\n", max_ops / num_ops);
-    while(depth>1 && (max_ops / num_ops) < MIN_SAMPLE_RATIO) {
-        printf("depth..."); 
-        --depth;
-        num_ops /= survivors;
-    }
+    num_ops= all_colors*candidates.len*samples.len;
     if(num_ops >= max_ops) {
         double f = max_ops / num_ops;
         if(f<MIN_SAMPLE_RATIO) f = MIN_SAMPLE_RATIO;
@@ -1118,7 +1098,6 @@ PRIVATE bool least_worst(state *state) {
     
     progress(-candidates.len);
     for(i=0; i<candidates.len; ++i) {
-        data.worst = 0;
         
         /* refesh our sample list from time to time */
         if(rnd_thr>=0 && 0==(i & 7)) {
@@ -1130,33 +1109,39 @@ PRIVATE bool least_worst(state *state) {
             ARRAY_ADD(samples, NULL);
         }
 
-        find_worst(&data, state, candidates.tab[i], depth);
+        data.least_c = least1;
+		// data.samples = samples.tab;
+        find_worst(&data, state, candidates.tab[i]);
         progress(i);
         
         /* keep the least-worse candidate */
-        if(data.worst < data.least_c) {
+        if(data.worst <= least1) {
+			int color = data.worst_c;
+			int j; 
+			// TODO early exit when least1=1 or 0 ?
+			least1 = data.worst;
+			for(j=0; j<candidates.len; ++j) if(i!=j) {
+				struct state state2 = *state;
+				state_update(&state2, candidates.tab[i]->symbols, color);
+				data.least_c = least2;
+				// data.samples = formulae.tab;
+				find_worst(&data, &state2, candidates.tab[j]);
+				if(data.worst < least2) {
 #if 1 //def DEBUG
-            int  j;
-            printf("\n%5d [", data.worst); fflush(stdout);
-            for(j=0; j<SIZE; ++j) putchar(mask_to_char(candidates.tab[i]->symbols[j]));
-            putchar(' ');
-            for(j=0; j<SIZE; ++j) putchar(mask_to_char(data.candidate2->symbols[j]));
-            putchar(']');
-            fflush(stdout);
+					int  k;
+					printf("\n%5d %5d [", least1, data.worst);
+					for(k=0; k<SIZE; ++k) putchar(mask_to_char(candidates.tab[i]->symbols[k]));
+					putchar(' ');
+					for(k=0; k<SIZE; ++k) putchar(mask_to_char(candidates.tab[j]->symbols[k]));
+					putchar(']');
+					fflush(stdout);
 #endif
-            data.least_c = data.worst;
-            least_f = candidates.tab[i];
-
-            if(1) {
-                formula *t = data.candidates[0];
-                formula **l = &data.candidates[1];
-                data.candidates[0] = data.candidate2;
-                while(*l != data.candidate2) ++l;
-                *l = t;
-            }
-            
-            if(data.least_c==1) break;
-        }
+					least2  = data.worst;
+					least_f = candidates.tab[i];
+					// TODO early exit when least2=1 or 0 ?
+				}
+			}
+		}
     }
     ARRAY_DONE(samples);
     ARRAY_DONE(candidates);
@@ -1474,7 +1459,7 @@ int main(int argc, char **argv) {
 #else
         least_worst(&state);
 #endif
-        i=0; do ++i; while(play_round(&state, used_depth==1 && i==1));
+        i=0; do ++i; while(play_round(&state, 0 && (used_depth==1 && i==1)));
         printf("Solved in %s%d%s round%s.\n", A_BOLD, i, A_NORM, i>1?"s":"");
         if(formulae.len>0)
             printf("You were lucky. There existed %s%u%s other possibilit%s.\n", 
