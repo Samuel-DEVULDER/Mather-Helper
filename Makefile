@@ -19,7 +19,9 @@ else
 EXE=
 endif
 
-ALL=$(patsubst %, mathler-%$(EXE), EASY NORMAL HARD THENUMBLE NUMBLE)
+KIND=EASY NORMAL HARD THENUMBLE NUMBLE
+
+ALL=$(patsubst %, mathler-%$(EXE), $(KIND))
 
 ###############################################################################
 
@@ -34,7 +36,10 @@ peekasm:
 	$(OBJDUMP) -D -S tmp.o | less
 
 play: $(ALL)
-	for exe in $(ALL); do ./$$exe; done
+	for exe in $(ALL); do ./$$exe; echo -n "press enter"; read a; done
+
+play-%: mathler-%$(EXE)
+	./$<
 
 mathler-%$(EXE): mathler.c Makefile
 	$(CC) -o $@ -D$* $(OPTIM) $(COPTS) $(DEBUG) $< CBack-1.0/SRC/CBack.c $(LINK)
