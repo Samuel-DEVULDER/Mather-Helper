@@ -77,8 +77,8 @@ exit $?
 #define FASTER_RAND         1
 
 #define MAX_CANDIDATES      (5000)
-#define MAX_SAMPLES         (15000*4)
-#define MIN_SAMPLE_RATIO    (0.20)
+#define MAX_SAMPLES         (15000/3)
+#define MIN_SAMPLE_RATIO    (0.05)
 
 /*****************************************************************************/
 
@@ -1011,6 +1011,7 @@ PRIVATE void find_worst(least_worst_data *data, state *state, formula *candidate
 PRIVATE bool least_worst(state *state) {
     const double max_ops =((double)MAX_CANDIDATES)*MAX_SAMPLES*nthreads;
     const int all_colors = ipow(3,SIZE);
+	int early_exit = 1;
     
     int rnd_thr = -1;
     int depth = 2;
@@ -1083,6 +1084,7 @@ PRIVATE bool least_worst(state *state) {
         if(f<MIN_SAMPLE_RATIO) f = MIN_SAMPLE_RATIO;
         printf("sample(%.01f%%)...", 100*f); fflush(stdout);
         rnd_thr = RAND_MAX * f;
+		early_exit = 0;
     }
     
     ARRAY_ADD(candidates, NULL); --candidates.len;
@@ -1115,17 +1117,18 @@ PRIVATE bool least_worst(state *state) {
         progress(i);
         
         /* keep the least-worse candidate */
-        if(data.worst <= least1) {
-			int color = data.worst_c;
+        if(data.worst < least1) {
+			struct state state2 = *state;
+			state_update(&state2, candidates.tab[i]->symbols, data.worst_c);
 			int j; 
+
 			// TODO early exit when least1=1 or 0 ?
 			least1 = data.worst;
-			for(j=0; j<candidates.len; ++j) if(i!=j) {
-				struct state state2 = *state;
-				state_update(&state2, candidates.tab[i]->symbols, color);
+			for(j=0; j<candidates.len; ++j) {
 				data.least_c = least2;
 				// data.samples = formulae.tab;
 				find_worst(&data, &state2, candidates.tab[j]);
+				// if((eq && data.worst < least2) || (!eq && data.worst <= least2)) {
 				if(data.worst < least2) {
 #if 1 //def DEBUG
 					int  k;
@@ -1138,7 +1141,7 @@ PRIVATE bool least_worst(state *state) {
 #endif
 					least2  = data.worst;
 					least_f = candidates.tab[i];
-					// TODO early exit when least2=1 or 0 ?
+					if(least2==early_exit) i = j = candidates.len;
 				}
 			}
 		}
