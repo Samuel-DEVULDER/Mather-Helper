@@ -70,14 +70,12 @@ exit $?
 #define CONFIG              2
 #endif
 
-#define DEPTH				2
-
 #define DO_SHUFFLE          0 //defined(_OPENMP)
 #define DO_SORT             1
 #define FASTER_RAND         1
 
 #define MAX_CANDIDATES      (5000)
-#define MAX_SAMPLES         (15000/3)
+#define MAX_SAMPLES         (15000*4)
 #define MIN_SAMPLE_RATIO    (0.05)
 
 /*****************************************************************************/
@@ -206,7 +204,7 @@ PRIVATE int progress(int count) {
         return temp.tv_sec>INT_MAX ? INT_MAX : (int)temp.tv_sec;
     } else if(count<0) { // set
         total   = -count;
-        cpt_sec = -1;
+        cpt_sec = -30;
         last    = 0;
         cpt     = 0;
         gettime(&start);
@@ -221,7 +219,7 @@ PRIVATE int progress(int count) {
     } else { // step
         struct timeval curr, temp; ++cpt;
         if(cpt_sec<0 && 0<=cpt_sec+cpt) {
-            cpt_sec -= 1;
+            cpt_sec -= 30;
             gettime(&curr);
             timersub(&curr, &start, &temp);
             if(temp.tv_sec>=15) {
@@ -736,7 +734,6 @@ typedef struct formula {
 } formula;
 
 PRIVATE ARRAY_DECL(formula *, formulae);
-PRIVATE int used_depth;
 
 #ifdef _OPENMP
 PRIVATE int nthreads = 1;
@@ -1014,7 +1011,6 @@ PRIVATE bool least_worst(state *state) {
 	int early_exit = 1;
     
     int rnd_thr = -1;
-    int depth = 2;
     
 	int least1, least2;
 	
@@ -1092,12 +1088,6 @@ PRIVATE bool least_worst(state *state) {
     data.candidates   = candidates.tab;
     data.samples      = samples.tab;
     
-    used_depth = depth;
-	if(depth==2) {
-		printf("lookahead(2)...");
-		fflush(stdout);
-	}
-    
     progress(-candidates.len);
     for(i=0; i<candidates.len; ++i) {
         
@@ -1117,14 +1107,14 @@ PRIVATE bool least_worst(state *state) {
         progress(i);
         
         /* keep the least-worse candidate */
-        if(data.worst < least1) {
+        if(data.worst <= least1) {
 			struct state state2 = *state;
 			state_update(&state2, candidates.tab[i]->symbols, data.worst_c);
 			int j; 
 
 			// TODO early exit when least1=1 or 0 ?
 			least1 = data.worst;
-			for(j=0; j<candidates.len; ++j) {
+			for(j=0; j<candidates.len; ++j) if(state_compatible(&state2, candidates.tab[j])) {
 				data.least_c = least2;
 				// data.samples = formulae.tab;
 				find_worst(&data, &state2, candidates.tab[j]);
@@ -1139,8 +1129,8 @@ PRIVATE bool least_worst(state *state) {
 					putchar(']');
 					fflush(stdout);
 #endif
-					least2  = data.worst;
 					least_f = candidates.tab[i];
+					least2  = data.worst;
 					if(least2==early_exit) i = j = candidates.len;
 				}
 			}
@@ -1462,7 +1452,7 @@ int main(int argc, char **argv) {
 #else
         least_worst(&state);
 #endif
-        i=0; do ++i; while(play_round(&state, 0 && (used_depth==1 && i==1)));
+        i=0; do ++i; while(play_round(&state, 0 && (i==1)));
         printf("Solved in %s%d%s round%s.\n", A_BOLD, i, A_NORM, i>1?"s":"");
         if(formulae.len>0)
             printf("You were lucky. There existed %s%u%s other possibilit%s.\n", 
