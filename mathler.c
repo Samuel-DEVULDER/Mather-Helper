@@ -830,7 +830,7 @@ PRIVATE void state_relax(state *s) {
         mask m = MSKall ^ s->impossible[i];
         if((m & -m)==m) s->impossible[i] = imp;
     }
-	s->mandatory = 0;
+	// s->mandatory = 0;
 #ifdef DEBUG
     printf("relaxed state:\n");
     state_print(s);
@@ -1103,8 +1103,8 @@ PRIVATE bool least_worst(state *state, int round) {
     data.candidates   = candidates.tab;
     data.samples      = samples.tab;
 
-	candidate2_tab = candidates.tab;
-	candidate2_len = candidates.len;
+	candidate2_tab = found.tab;
+	candidate2_len = found.len;
 	
     progress(-(long long)candidates.len*(long long)candidate2_len);
     for(i=0; i<candidates.len; ++i, p += candidate2_len) {
@@ -1471,7 +1471,7 @@ int main(int argc, char **argv) {
         ARRAY_NULL(formulae);
 		ARRAY_NULL(found);
         state_init(&state);
-#if NUMBLEx
+#if NUMBLE
         memcpy(buffer, "9*42=378", SIZE);
 #else
         least_worst(&state, 0);
