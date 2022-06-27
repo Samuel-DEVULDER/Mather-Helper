@@ -286,7 +286,7 @@ PRIVATE void *_ARRAY_PTR(void *_array, size_t n) {
 #define ARRAY_AT(ARRAY,INDEX)                               \
     *((ARRAY).ptr=_ARRAY_PTR(&(ARRAY),(INDEX)))
 
-#if 1
+#if 0
 #define ARRAY_REM(ARRAY, INDEX)                             \
     memmove(&(ARRAY).tab[(INDEX)], &(ARRAY).tab[(INDEX)+1], \
            (--(ARRAY).len - (INDEX))*(ARRAY).cell)
@@ -1044,11 +1044,10 @@ PRIVATE bool least_worst(state *state, int round) {
 	least2 = least1 = formulae.len;
 
     printf("Finding least worst equation..."); fflush(stdout);
-	
 	// keep valid candidates
     ARRAY_CPY(candidates, found);
 	struct state st = *state;
-	// if(round<=1) state_relax(&st);
+	if(round<=1) state_relax(&st);
 	for(i=0; i<candidates.len;) {
 		if(state_compatible(&st, candidates.tab[i])) 
 			++i;
@@ -1104,8 +1103,8 @@ PRIVATE bool least_worst(state *state, int round) {
     data.candidates   = candidates.tab;
     data.samples      = samples.tab;
 
-	candidate2_tab = found.tab;
-	candidate2_len = found.len;
+	candidate2_tab = candidates.tab;
+	candidate2_len = candidates.len;
 	
     progress(-(long long)candidates.len*(long long)candidate2_len);
     for(i=0; i<candidates.len; ++i, p += candidate2_len) {
@@ -1216,11 +1215,11 @@ PRIVATE void remove_played(mask symbs[SIZE]) {
 			ARRAY_REM(formulae, i);
 			break;
 		}
-	for(i=0; i<found.len; ++i)
-		if(!memcmp(found.tab[i]->symbols, symbs, SIZE*sizeof(mask))) {
-			ARRAY_REM(found, i);
-			break;
-		}
+	// for(i=0; i<found.len; ++i)
+		// if(!memcmp(found.tab[i]->symbols, symbs, SIZE*sizeof(mask))) {
+			// ARRAY_REM(found, i);
+			// break;
+		// }
 }
 
 PRIVATE bool play_round(state *state, int round) {
