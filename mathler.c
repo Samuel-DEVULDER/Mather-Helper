@@ -1262,6 +1262,37 @@ PRIVATE inline int simd_popcount(SIMD_TYPE x)
 }
 #endif /* SIMD */
 
+#ifdef _OPENMP
+PRIVATE void least_worst2_omp(int i, int *m1, int *m2) {
+    int j;
+
+    #pragma omp parallel for
+    for(j=0; j<formulae.len; ++j) {
+        formula *fi = formulae.tab[i];
+        formula *fj = formulae.tab[j];
+        int m = 0;
+        
+#ifdef SIMD_TYPE
+        SIMD_TYPE *vi = fi->_symbols.vect;
+        SIMD_TYPE *vj = fj->_symbols.vect;
+        int k = sizeof(fi->_symbols.vect)/sizeof(fi->_symbols.vect[0]);
+        do m += simd_popcount(*vi++ & *vj++); while(--k);
+#else  /* !SIMD */
+        int k = SIZE;
+        mask *si = fi->symbols, *sj = fj->symbols;
+        do if(*fi++ == *fj++) ++m; while(--k);
+#endif
+    
+        if(m>0) {
+            #pragma omp atomic 
+            ++*m1; 
+            #pragma omp atomic
+            *m2 += m;
+        }
+    }
+}
+#endif
+
 PRIVATE bool least_worst(state *state, int round) {
     int i;
 
@@ -1284,12 +1315,16 @@ PRIVATE bool least_worst(state *state, int round) {
         return true;
     }
 
-    printf("Finding most informative equation..."); fflush(stdout);
+    printf("Finding equation woth most common symbols..."); fflush(stdout);
     
     progress(-(long long)formulae.len);
     for(i=0; i<formulae.len; progress(p++), ++i) {
         int j;
         int m1 = 0, m2 = 0;
+        
+        #ifdef _OPENMP
+        if(nthreads>1) least_worst2_omp(i, &m1, &m2); else 
+        #endif
         
         for(j=0; j<formulae.len; ++j) {
             formula *fi = formulae.tab[i];
