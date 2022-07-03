@@ -79,7 +79,7 @@ exit $?
 #define DO_SORT             1
 #define FASTER_RAND         1
 
-#define MAX_CANDIDATES      (5000)
+#define MAX_CANDIDATES      (5000*2)
 #define MAX_SAMPLES         (15000*4)
 #define MIN_SAMPLE_RATIO    (0.05)
 
@@ -984,6 +984,9 @@ PRIVATE int state_compatible_count(state *state, int threshold, formula **sample
     return n;
 }
 
+#define ARRAY_NULL(A) ARRAY_AT((A),(A).len) = NULL
+
+#ifndef KILLER
 /* find the worst number of incompatible states for the
    current candidate */
 typedef struct {
@@ -1045,8 +1048,6 @@ PRIVATE void find_worst(least_worst_data *data, state *state, formula *candidate
     }
 }
 
-#define ARRAY_NULL(A) ARRAY_AT((A),(A).len) = NULL
-
 PRIVATE bool least_worst(state *state, int round) {
     const double max_ops =((double)MAX_CANDIDATES)*MAX_SAMPLES*ipow(3,8)*nthreads;
 #ifdef KILLER
@@ -1089,7 +1090,7 @@ PRIVATE bool least_worst(state *state, int round) {
     // keep valid candidates
     ARRAY_CPY(candidates, found);
     struct state st = *state;
-    if(round<=1) state_relax(&st);
+    if(round<=2) state_relax(&st);
     for(i=0; i<candidates.len;) {
         if(state_compatible(&st, candidates.tab[i]))
             ++i;
@@ -1150,7 +1151,7 @@ PRIVATE bool least_worst(state *state, int round) {
 
     progress(-(long long)candidates.len*(long long)candidate2_len);
     for(i=0; i<candidates.len; ++i, p += candidate2_len) {
-        int thr = least1; //(least1*5)/4;
+        int thr = (least1*9)/8 + 10;
 
         /* refesh our sample list from time to time */
         if(rnd_thr>=0 && 0==(i & 7)) {
@@ -1167,7 +1168,7 @@ PRIVATE bool least_worst(state *state, int round) {
         find_worst(&data, state, candidates.tab[i]);
         // for(int k=0; k<SIZE; ++k) putchar(mask_to_char(candidates.tab[i]->symbols[k]));
         // printf(" = %d\n", data.worst);
-		
+        
         /* keep the least-worse candidate */
         if(data.worst <= thr /*|| data.worst <= 100*/) {
             int w1 = data.worst;
@@ -1176,7 +1177,7 @@ PRIVATE bool least_worst(state *state, int round) {
             struct state state2 = *state;
             state_update(&state2, candidates.tab[i]->symbols, data.worst_c);
 
-            struct state st = state2; if(round+1<=1) state_relax(&st);
+            struct state st = state2; if(round+1<=2) state_relax(&st);
 
             int j;
 
@@ -1203,7 +1204,7 @@ PRIVATE bool least_worst(state *state, int round) {
                     least_f = candidates.tab[i];
                     least2  = data.worst;
                     least1  = w1;
-				}
+                }
             }
         }
     }
@@ -1223,6 +1224,116 @@ PRIVATE bool least_worst(state *state, int round) {
 #endif
     return least1>0;
 }
+
+#else /* KILLER */
+
+#ifdef SIMD
+PRIVATE inline int simd_popcount(SIMD_TYPE x)
+{
+    if(sizeof(SIMD_TYPE)==sizeof(uint64_t)) {
+        const uint64_t m1  = 0x5555555555555555l; //binary: 0101...
+        const uint64_t m2  = 0x3333333333333333l; //binary: 00110011..
+        const uint64_t m4  = 0x0f0f0f0f0f0f0f0fl; //binary:  4 zeros,  4 ones ...
+        const uint64_t h01 = 0x0101010101010101l; //the sum of 256 to the power of 0,1,2,3...
+
+        x -= (x >> 1) & m1;             //put count of each 2 bits into those 2 bits
+        x = (x & m2) + ((x >> 2) & m2); //put count of each 4 bits into those 4 bits 
+        x = (x + (x >> 4)) & m4;        //put count of each 8 bits into those 8 bits 
+        return (x * h01) >> 56;  //returns left 8 bits of x + (x<<8) + (x<<16) + (x<<24) + ... 
+    }
+
+#ifdef __SSE4_1__
+    if(sizeof(SIMD_TYPE)==sizeof(__m128i)) {
+        const __m128i n_hi = _mm_unpackhi_epi64(n, n);
+    #ifdef _MSC_VER
+        return __popcnt64(_mm_cvtsi128_si64(n)) + __popcnt64(_mm_cvtsi128_si64(n_hi));
+    #else
+        return __popcntq(_mm_cvtsi128_si64(n)) + __popcntq(_mm_cvtsi128_si64(n_hi));
+    #endif
+    }
+#endif
+    
+    if(sizeof(SIMD_TYPE)<=sizeof(uint32_t)) {
+        return popcount(x);
+    }
+    
+    abort();
+    return -1;
+}
+#endif /* SIMD */
+
+PRIVATE bool least_worst(state *state, int round) {
+    int i;
+
+    formula *least_f = formulae.tab[0];
+    int max1 =0, max2 = 0;
+    
+    long long p = 0;
+    
+    if(formulae.len == 0) {
+        (void)rand(); // keep compiler happy
+        if(0) state_relax(state); // keep compiler happy
+        return false;
+    }
+
+    if(formulae.len == 1) {
+        printf("Only one possible equation.\n");
+        for(i=0; i<SIZE; ++i) {
+            buffer[i] = mask_to_char(formulae.tab[0]->symbols[i]);
+        }
+        return true;
+    }
+
+    printf("Finding most informative equation..."); fflush(stdout);
+    
+    progress(-(long long)formulae.len);
+    for(i=0; i<formulae.len; progress(p++), ++i) {
+        int j;
+        int m1 = 0, m2 = 0;
+        
+        for(j=0; j<formulae.len; ++j) {
+            formula *fi = formulae.tab[i];
+            formula *fj = formulae.tab[j];
+            int m = 0;
+            
+#ifdef SIMD_TYPE
+            SIMD_TYPE *vi = fi->_symbols.vect;
+            SIMD_TYPE *vj = fj->_symbols.vect;
+            int k = sizeof(fi->_symbols.vect)/sizeof(fi->_symbols.vect[0]);
+            do m += simd_popcount(*vi++ & *vj++); while(--k);
+#else  /* !SIMD */
+            int k = SIZE;
+            mask *si = fi->symbols, *sj = fj->symbols;
+            do if(*fi++ == *fj++) ++m; while(--k);
+#endif
+        
+            if(m>0) {++m1; m2 += m;}
+        }
+        
+        if(m1 > max1 || (m1 == max1 && m2>max2)) {
+#if 1 //def DEBUG
+            int  k;
+            printf("\n%5d %5d [", m1, m2);
+            for(k=0; k<SIZE; ++k) putchar(mask_to_char(formulae.tab[i]->symbols[k]));
+            putchar(']');
+            fflush(stdout);
+#endif
+
+            max1 = m1;
+            max2 = m2;
+            least_f = formulae.tab[i];
+        }
+    }
+    printf("done");
+    if((i=progress(0))>1) printf(" (%s%d%s secs)", A_BOLD, i, A_NORM);
+    printf("\n");
+    for(i=0; i<SIZE; ++i) {
+        buffer[i] = mask_to_char(least_f->symbols[i]);
+    }
+    return max1>0;
+}
+#endif
+
 
 /*****************************************************************************/
 

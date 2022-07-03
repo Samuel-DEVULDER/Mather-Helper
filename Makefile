@@ -19,7 +19,7 @@ else
 EXE=
 endif
 
-KIND=EASY NORMAL HARD KILLER THENUMBLE NUMBLE
+KIND=EASY NORMAL HARD THENUMBLE KILLER NUMBLE
 
 ALL=$(patsubst %, mathler-%$(EXE), $(KIND))
 
@@ -36,7 +36,7 @@ peekasm:
 	$(OBJDUMP) -D -S tmp.o | less
 
 play: $(ALL)
-	for exe in $(ALL); do ./$$exe; echo -n "press enter"; read a; done
+	for exe in $(ALL); do ./$$exe; echo -n "press enter..."; read a; echo; done
 
 play-%: mathler-%$(EXE)
 	./$<
