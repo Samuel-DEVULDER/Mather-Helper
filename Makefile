@@ -30,9 +30,11 @@ all: $(ALL)
 clean:
 	rm -f $(ALL)
 
-peekasm: 
+peekasm: peekasm-HARD
+
+peekasm-%: 
 	$(CC) -o tmp.o mathler.c \
-	-DHARD $(OPTIM) $(COPTS) $(DEBUG) -c -fno-inline -g
+	-D$* $(OPTIM) $(COPTS) $(DEBUG) -c -fno-inline -g
 	$(OBJDUMP) -D -S tmp.o | less
 
 play: $(ALL)

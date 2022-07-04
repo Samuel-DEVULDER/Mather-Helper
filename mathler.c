@@ -79,9 +79,9 @@ exit $?
 #define DO_SORT             1
 #define FASTER_RAND         1
 
-#define MAX_CANDIDATES      (5000*2)
-#define MAX_SAMPLES         (15000*4)
-#define MIN_SAMPLE_RATIO    (0.05)
+#define MAX_CANDIDATES      (1500)
+#define MAX_SAMPLES         (15000)
+#define MIN_SAMPLE_RATIO    (0.01)
 
 /*****************************************************************************/
 
@@ -986,7 +986,7 @@ PRIVATE int state_compatible_count(state *state, int threshold, formula **sample
 
 #define ARRAY_NULL(A) ARRAY_AT((A),(A).len) = NULL
 
-#ifndef KILLER
+#ifndef KILLERx
 /* find the worst number of incompatible states for the
    current candidate */
 typedef struct {
@@ -1049,7 +1049,11 @@ PRIVATE void find_worst(least_worst_data *data, state *state, formula *candidate
 }
 
 PRIVATE bool least_worst(state *state, int round) {
-    const double max_ops =((double)MAX_CANDIDATES)*MAX_SAMPLES*ipow(3,8)*nthreads;
+    const double max_ops =((double)MAX_CANDIDATES)*MAX_SAMPLES
+	#ifdef _OPENMP
+	*nthreads
+	#endif
+	;
 #ifdef KILLER
     const int all_colors = (1<<SIZE);
 #else
@@ -1151,6 +1155,7 @@ PRIVATE bool least_worst(state *state, int round) {
 
     progress(-(long long)candidates.len*(long long)candidate2_len);
     for(i=0; i<candidates.len; ++i, p += candidate2_len) {
+		bool first = true;
         int thr = (least1*9)/8 + 10;
 
         /* refesh our sample list from time to time */
@@ -1193,7 +1198,7 @@ PRIVATE bool least_worst(state *state, int round) {
 #if 1 //def DEBUG
                     int  k;
                     // if(w1==least1) printf("\r"); else
-                    printf("\n");
+                    printf(first ? "\n" : "\r"); first = false;
                     printf("%5d %5d [", w1, data.worst);
                     for(k=0; k<SIZE; ++k) putchar(mask_to_char(candidates.tab[i]->symbols[k]));
                     putchar(' ');
