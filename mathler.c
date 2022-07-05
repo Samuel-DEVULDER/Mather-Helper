@@ -1049,7 +1049,7 @@ PRIVATE void find_worst(least_worst_data *data, state *state, formula *candidate
 }
 
 PRIVATE bool least_worst(state *state, int round) {
-    const double max_ops =((double)MAX_CANDIDATES)*MAX_SAMPLES
+    const double max_ops =((double)MAX_CANDIDATES)*MAX_SAMPLES*ipow(3,8)
 	#ifdef _OPENMP
 	*nthreads
 	#endif
