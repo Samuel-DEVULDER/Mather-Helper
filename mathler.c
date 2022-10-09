@@ -826,24 +826,6 @@ PRIVATE void state_print(state *state) {
 }
 #endif
 
-PRIVATE void state_relax(state *s) {
-#ifndef KILLER
-    mask imp = MSKall;
-    int i;
-
-    for(i=0; i<SIZE; ++i) imp &= s->impossible[i];
-    for(i=0; i<SIZE; ++i) {
-        mask m = MSKall ^ s->impossible[i];
-        if((m & -m)==m) s->impossible[i] = imp;
-    }
-    // s->mandatory = 0;
-#ifdef DEBUGxw
-    printf("relaxed state:\n");
-    state_print(s);
-#endif
-#endif /* !KILLER */
-}
-
 #define GREEN   0   /* must be 0 */
 #ifdef KILLER
 #define BLACK   1
@@ -934,6 +916,22 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
 
     return true;
 }
+
+PRIVATE void state_relax(state *s) {
+    mask imp = MSKall;
+    int i;
+
+    for(i=0; i<SIZE; ++i) imp &= s->impossible[i];
+    for(i=0; i<SIZE; ++i) {
+        mask m = MSKall ^ s->impossible[i];
+        if((m & -m)==m) s->impossible[i] = imp;
+    }
+    // s->mandatory = 0;
+#ifdef DEBUG
+    printf("relaxed state:\n");
+    state_print(s);
+#endif
+}
 #endif
 
 PRIVATE bool state_compatible(state *state, formula *formula) {
@@ -986,7 +984,7 @@ PRIVATE int state_compatible_count(state *state, int threshold, formula **sample
 
 #define ARRAY_NULL(A) ARRAY_AT((A),(A).len) = NULL
 
-#ifndef KILLERx
+#ifndef KILLER
 /* find the worst number of incompatible states for the
    current candidate */
 typedef struct {
@@ -1232,83 +1230,31 @@ PRIVATE bool least_worst(state *state, int round) {
 
 #else /* KILLER */
 
-#ifdef SIMD
-PRIVATE inline int simd_popcount(SIMD_TYPE x)
+PRIVATE int mask2num(mask m)
 {
-    if(sizeof(SIMD_TYPE)==sizeof(uint64_t)) {
-        const uint64_t m1  = 0x5555555555555555l; //binary: 0101...
-        const uint64_t m2  = 0x3333333333333333l; //binary: 00110011..
-        const uint64_t m4  = 0x0f0f0f0f0f0f0f0fl; //binary:  4 zeros,  4 ones ...
-        const uint64_t h01 = 0x0101010101010101l; //the sum of 256 to the power of 0,1,2,3...
-
-        x -= (x >> 1) & m1;             //put count of each 2 bits into those 2 bits
-        x = (x & m2) + ((x >> 2) & m2); //put count of each 4 bits into those 4 bits 
-        x = (x + (x >> 4)) & m4;        //put count of each 8 bits into those 8 bits 
-        return (x * h01) >> 56;  //returns left 8 bits of x + (x<<8) + (x<<16) + (x<<24) + ... 
-    }
-
-#ifdef __SSE4_1__
-    if(sizeof(SIMD_TYPE)==sizeof(__m128i)) {
-        const __m128i n_hi = _mm_unpackhi_epi64(n, n);
-    #ifdef _MSC_VER
-        return __popcnt64(_mm_cvtsi128_si64(n)) + __popcnt64(_mm_cvtsi128_si64(n_hi));
-    #else
-        return __popcntq(_mm_cvtsi128_si64(n)) + __popcntq(_mm_cvtsi128_si64(n_hi));
-    #endif
-    }
-#endif
-    
-    if(sizeof(SIMD_TYPE)<=sizeof(uint32_t)) {
-        return popcount(x);
-    }
-    
-    abort();
-    return -1;
+	int n = 0;
+    //m &= -m;
+	if(!(m & 0xffff)) {m>>=16; n += 16;}
+	if(!(m & 0x00ff)) {m>>= 8; n +=  8;}
+	if(!(m & 0x000f)) {m>>= 4; n +=  4;}
+	if(!(m & 0x0003)) {m>>= 2; n +=  2;}
+	if(m==2) ++n;
+	return n;
 }
-#endif /* SIMD */
-
-#ifdef _OPENMP
-PRIVATE void least_worst2_omp(int i, int *m1, int *m2) {
-    int j;
-
-    #pragma omp parallel for
-    for(j=0; j<formulae.len; ++j) {
-        formula *fi = formulae.tab[i];
-        formula *fj = formulae.tab[j];
-        int m = 0;
-        
-#ifdef SIMD_TYPE
-        SIMD_TYPE *vi = fi->_symbols.vect;
-        SIMD_TYPE *vj = fj->_symbols.vect;
-        int k = sizeof(fi->_symbols.vect)/sizeof(fi->_symbols.vect[0]);
-        do m += simd_popcount(*vi++ & *vj++); while(--k);
-#else  /* !SIMD */
-        int k = SIZE;
-        mask *si = fi->symbols, *sj = fj->symbols;
-        do if(*fi++ == *fj++) ++m; while(--k);
-#endif
-    
-        if(m>0) {
-            #pragma omp atomic 
-            ++*m1; 
-            #pragma omp atomic
-            *m2 += m;
-        }
-    }
-}
-#endif
 
 PRIVATE bool least_worst(state *state, int round) {
-    int i;
+    struct {
+		float p[SIZE][16];
+	} stat;
 
     formula *least_f = formulae.tab[0];
-    int max1 =0, max2 = 0;
+    float    entro_f = -1;
     
     long long p = 0;
+	int i;
     
     if(formulae.len == 0) {
         (void)rand(); // keep compiler happy
-        if(0) state_relax(state); // keep compiler happy
         return false;
     }
 
@@ -1322,55 +1268,49 @@ PRIVATE bool least_worst(state *state, int round) {
 
     printf("Finding equation woth most common symbols..."); fflush(stdout);
     
+	memset(&stat, 0, sizeof(stat));
+	#ifdef _OPENMP
+	#pragma omp parallel shared(stat)
+	#endif
+	for(i=0; i<formulae.len; ++i) {
+		formula *f = formulae.tab[i];
+		int j;
+		for(j=0; j<SIZE; ++j) {
+			stat.p[j][mask2num(f->symbols[j])] += 1.0f;
+		}
+	}
+	for(i=0; i<SIZE; ++i) {
+		int j;
+		for(j=0; j<16; ++j) stat.p[i][j] /= (float)formulae.len;
+	}
+	
     progress(-(long long)formulae.len);
     for(i=0; i<formulae.len; progress(p++), ++i) {
-        int j;
-        int m1 = 0, m2 = 0;
-        
-        #ifdef _OPENMP
-        if(nthreads>1) least_worst2_omp(i, &m1, &m2); else 
-        #endif
-        
-        for(j=0; j<formulae.len; ++j) {
-            formula *fi = formulae.tab[i];
-            formula *fj = formulae.tab[j];
-            int m = 0;
-            
-#ifdef SIMD_TYPE
-            SIMD_TYPE *vi = fi->_symbols.vect;
-            SIMD_TYPE *vj = fj->_symbols.vect;
-            int k = sizeof(fi->_symbols.vect)/sizeof(fi->_symbols.vect[0]);
-            do m += simd_popcount(*vi++ & *vj++); while(--k);
-#else  /* !SIMD */
-            int k = SIZE;
-            mask *si = fi->symbols, *sj = fj->symbols;
-            do if(*fi++ == *fj++) ++m; while(--k);
-#endif
-        
-            if(m>0) {++m1; m2 += m;}
-        }
-        
-        if(m1 > max1 || (m1 == max1 && m2>max2)) {
-#if 1 //def DEBUG
-            int  k;
-            printf("\n%5d %5d [", m1, m2);
-            for(k=0; k<SIZE; ++k) putchar(mask_to_char(formulae.tab[i]->symbols[k]));
-            putchar(']');
-            fflush(stdout);
-#endif
-
-            max1 = m1;
-            max2 = m2;
-            least_f = formulae.tab[i];
-        }
-    }
-    printf("done");
-    if((i=progress(0))>1) printf(" (%s%d%s secs)", A_BOLD, i, A_NORM);
+		formula *f = formulae.tab[i];
+		double E=0;
+		int j;
+		
+		for(j=0; j<SIZE; ++j) {
+			float p = stat.p[j][mask2num(f->symbols[j])];
+			E -= p*log(p);
+			// putchar(mask_to_char(f->symbols[j]));
+		}
+		
+		// printf(" = %f", E);
+		
+		if(E>entro_f) {
+			entro_f = E;
+			least_f = formulae.tab[i];
+			// putchar('*');
+		}
+		// printf("\n");
+	}
+	if((i=progress(0))>1) printf(" (%s%d%s secs)", A_BOLD, i, A_NORM);
     printf("\n");
     for(i=0; i<SIZE; ++i) {
         buffer[i] = mask_to_char(least_f->symbols[i]);
     }
-    return max1>0;
+    return true;
 }
 #endif
 
