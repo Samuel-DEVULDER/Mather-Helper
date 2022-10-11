@@ -81,7 +81,7 @@ exit $?
 
 #define MAX_CANDIDATES      (1500)
 #define MAX_SAMPLES         (15000)
-#define MIN_SAMPLE_RATIO    (0.01)
+#define MIN_SAMPLE_RATIO    (0.05)
 
 /*****************************************************************************/
 
@@ -522,6 +522,21 @@ PRIVATE char mask_to_char(mask mask) {
     }
 }
 
+PRIVATE int mask_to_num(mask m)
+{
+	int n = 0;
+    //m &= -m;
+#if INT_MAX>0x7fffffff
+	if(!(m & 0xffffffff)) {m >>= 32; n += 32;}
+#endif
+	if(!(m & 0x0000ffff)) {m >>= 16; n += 16;}
+	if(!(m & 0x000000ff)) {m >>=  8; n +=  8;}
+	if(!(m & 0x0000000f)) {m >>=  4; n +=  4;}
+	if(!(m & 0x00000003)) {m >>=  2; n +=  2;}
+	if(m == 2) ++n;
+	return n;
+}
+
 #ifdef DEBUG
 PRIVATE void mask_print(mask msk) {
     while(msk) {
@@ -916,22 +931,6 @@ PRIVATE bool state_update(state *st, mask *formula, int colors) {
 
     return true;
 }
-
-PRIVATE void state_relax(state *s) {
-    mask imp = MSKall;
-    int i;
-
-    for(i=0; i<SIZE; ++i) imp &= s->impossible[i];
-    for(i=0; i<SIZE; ++i) {
-        mask m = MSKall ^ s->impossible[i];
-        if((m & -m)==m) s->impossible[i] = imp;
-    }
-    // s->mandatory = 0;
-#ifdef DEBUG
-    printf("relaxed state:\n");
-    state_print(s);
-#endif
-}
 #endif
 
 PRIVATE bool state_compatible(state *state, formula *formula) {
@@ -984,7 +983,81 @@ PRIVATE int state_compatible_count(state *state, int threshold, formula **sample
 
 #define ARRAY_NULL(A) ARRAY_AT((A),(A).len) = NULL
 
-#ifndef KILLER
+PRIVATE bool max_entropy(void) {
+    struct {
+		float p[SIZE][16];
+	} stat;
+
+    formula *least_f = formulae.tab[0];
+    float    entro_f = -1;
+    
+    long long p = 0;
+	int i;
+
+    printf("Finding equation with most common symbols..."); fflush(stdout);
+    
+	memset(&stat, 0, sizeof(stat));
+	#ifdef _OPENMP
+	#pragma omp parallel shared(stat)
+	#endif
+	for(i=0; i<formulae.len; ++i) {
+		formula *f = formulae.tab[i];
+		int j;
+		for(j=0; j<SIZE; ++j) {
+			stat.p[j][mask_to_num(f->symbols[j])] += 1.0f;
+		}
+	}
+	for(i=0; i<SIZE; ++i) {
+		int j;
+		for(j=0; j<16; ++j) stat.p[i][j] /= (float)formulae.len;
+	}
+	
+    progress(-(long long)formulae.len);
+    for(i=0; i<formulae.len; progress(p++), ++i) {
+		formula *f = formulae.tab[i];
+		double E=0;
+		int j;
+		
+		for(j=0; j<SIZE; ++j) {
+			float p = stat.p[j][mask_to_num(f->symbols[j])];
+			E -= p*log(p);
+			// putchar(mask_to_char(f->symbols[j]));
+		}
+		
+		// printf(" = %f", E);
+		
+		if(E>entro_f) {
+			entro_f = E;
+			least_f = formulae.tab[i];
+			// putchar('*');
+		}
+		// printf("\n");
+	}
+	if((i=progress(0))>1) printf(" (%s%d%s secs)", A_BOLD, i, A_NORM);
+    printf("\n");
+    for(i=0; i<SIZE; ++i) {
+        buffer[i] = mask_to_char(least_f->symbols[i]);
+    }
+    return true;
+}
+
+#ifndef KILLERx
+PRIVATE void state_relax(state *s) {
+    mask imp = MSKall;
+    int i;
+
+    for(i=0; i<SIZE; ++i) imp &= s->impossible[i];
+    for(i=0; i<SIZE; ++i) {
+        mask m = MSKall ^ s->impossible[i];
+        if((m & -m)==m) s->impossible[i] = imp;
+    }
+    // s->mandatory = 0;
+#ifdef DEBUG
+    printf("relaxed state:\n");
+    state_print(s);
+#endif
+}
+
 /* find the worst number of incompatible states for the
    current candidate */
 typedef struct {
@@ -1047,16 +1120,15 @@ PRIVATE void find_worst(least_worst_data *data, state *state, formula *candidate
 }
 
 PRIVATE bool least_worst(state *state, int round) {
-    const double max_ops =((double)MAX_CANDIDATES)*MAX_SAMPLES*ipow(3,8)
+    const double max_ops =(((((double)MAX_CANDIDATES)
+		*MAX_CANDIDATES)
+		*MAX_SAMPLES)
+		*ipow(3,8))
 	#ifdef _OPENMP
-	*nthreads
+		*nthreads
 	#endif
 	;
-#ifdef KILLER
-    const int all_colors = (1<<SIZE);
-#else
     const int all_colors = ipow(3,SIZE);
-#endif
 
     int rnd_thr = -1;
 
@@ -1074,16 +1146,6 @@ PRIVATE bool least_worst(state *state, int round) {
     long long p = 0;
 
     least_worst_data data;
-
-    if(formulae.len == 0) return false;
-
-    if(formulae.len == 1) {
-        printf("Only one possible equation.\n");
-        for(i=0; i<SIZE; ++i) {
-            buffer[i] = mask_to_char(formulae.tab[0]->symbols[i]);
-        }
-        return true;
-    }
 
     data.all_colors = all_colors;
     least2 = least1 = formulae.len + 1;
@@ -1135,7 +1197,11 @@ PRIVATE bool least_worst(state *state, int round) {
     // get samples
     // printf("%d %d\n", candidates.len, all_colors);
     ARRAY_CPY(samples, formulae);
-    num_ops= all_colors*candidates.len*samples.len;
+    num_ops  = all_colors;
+	num_ops *= candidates.len;
+	num_ops *= candidates.len;
+	num_ops *= samples.len;
+	num_ops *= SIZE;
     if(num_ops >= max_ops) {
         double f = max_ops / num_ops;
         if(f<MIN_SAMPLE_RATIO) f = MIN_SAMPLE_RATIO;
@@ -1163,6 +1229,12 @@ PRIVATE bool least_worst(state *state, int round) {
             for(j=0; j<formulae.len; ++j) if(j==i || rand()<=rnd_thr) {
                 ARRAY_ADD(samples, formulae.tab[j]);
             }
+			if(samples.len<=MAX_SAMPLES) {
+				printf("failed.\n");
+				ARRAY_DONE(samples);
+				ARRAY_DONE(candidates);
+				return max_entropy();
+			}
             ARRAY_NULL(samples);
         }
 
@@ -1227,93 +1299,26 @@ PRIVATE bool least_worst(state *state, int round) {
 #endif
     return least1>0;
 }
+#endif /* !KILLER */
 
-#else /* KILLER */
 
-PRIVATE int mask2num(mask m)
-{
-	int n = 0;
-    //m &= -m;
-	if(!(m & 0xffff)) {m>>=16; n += 16;}
-	if(!(m & 0x00ff)) {m>>= 8; n +=  8;}
-	if(!(m & 0x000f)) {m>>= 4; n +=  4;}
-	if(!(m & 0x0003)) {m>>= 2; n +=  2;}
-	if(m==2) ++n;
-	return n;
-}
-
-PRIVATE bool least_worst(state *state, int round) {
-    struct {
-		float p[SIZE][16];
-	} stat;
-
-    formula *least_f = formulae.tab[0];
-    float    entro_f = -1;
-    
-    long long p = 0;
-	int i;
-    
-    if(formulae.len == 0) {
-        (void)rand(); // keep compiler happy
-        return false;
-    }
+PRIVATE bool fill_buffer(state *state, int round) {
+    if(formulae.len == 0) return false;
 
     if(formulae.len == 1) {
+		int i;
         printf("Only one possible equation.\n");
         for(i=0; i<SIZE; ++i) {
             buffer[i] = mask_to_char(formulae.tab[0]->symbols[i]);
         }
         return true;
     }
-
-    printf("Finding equation woth most common symbols..."); fflush(stdout);
-    
-	memset(&stat, 0, sizeof(stat));
-	#ifdef _OPENMP
-	#pragma omp parallel shared(stat)
-	#endif
-	for(i=0; i<formulae.len; ++i) {
-		formula *f = formulae.tab[i];
-		int j;
-		for(j=0; j<SIZE; ++j) {
-			stat.p[j][mask2num(f->symbols[j])] += 1.0f;
-		}
-	}
-	for(i=0; i<SIZE; ++i) {
-		int j;
-		for(j=0; j<16; ++j) stat.p[i][j] /= (float)formulae.len;
-	}
 	
-    progress(-(long long)formulae.len);
-    for(i=0; i<formulae.len; progress(p++), ++i) {
-		formula *f = formulae.tab[i];
-		double E=0;
-		int j;
-		
-		for(j=0; j<SIZE; ++j) {
-			float p = stat.p[j][mask2num(f->symbols[j])];
-			E -= p*log(p);
-			// putchar(mask_to_char(f->symbols[j]));
-		}
-		
-		// printf(" = %f", E);
-		
-		if(E>entro_f) {
-			entro_f = E;
-			least_f = formulae.tab[i];
-			// putchar('*');
-		}
-		// printf("\n");
-	}
-	if((i=progress(0))>1) printf(" (%s%d%s secs)", A_BOLD, i, A_NORM);
-    printf("\n");
-    for(i=0; i<SIZE; ++i) {
-        buffer[i] = mask_to_char(least_f->symbols[i]);
-    }
-    return true;
-}
+#ifdef KILLER
+	if(round>2) return max_entropy();
 #endif
-
+	return least_worst(state, round);
+}
 
 /*****************************************************************************/
 
@@ -1454,7 +1459,7 @@ PRIVATE bool play_round(state *state, int round) {
             bool ok;
             remove_impossible(state);
             remove_played(symbs);
-            ok = least_worst(state, round+1);
+            ok = fill_buffer(state, round+1);
             if(ok) break;
         }
     }
@@ -1546,7 +1551,7 @@ int main(int argc, char **argv) {
     rat target;
     int i = 0;
 
-    srand(time(0));
+    srand(time(0));(void)_rnd(); /* keep compiler happy */
     setlocale(LC_ALL, "");
 
     if(isatty(fileno(stdout))) {
@@ -1632,7 +1637,7 @@ int main(int argc, char **argv) {
 #if NUMBLE
         memcpy(buffer, "9*42=378", SIZE);
 #else
-        least_worst(&state, 0);
+        fill_buffer(&state, 0);
 #endif
         i=0; do ++i; while(play_round(&state, i));
         printf("Solved in %s%d%s round%s.\n", A_BOLD, i, A_NORM, i>1?"s":"");
